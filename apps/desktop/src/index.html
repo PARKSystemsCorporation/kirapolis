@@ -378,114 +378,91 @@
             </div>
             <div id="town-board" class="town-board"></div>
           </div>
-          <div class="grid-2">
-            <div class="panel stack">
-              <div class="label">Master Brief</div>
-              <div class="sub">Describe the PARKSystems 3D environment website once, then use it to brief the team and run autonomy.</div>
-              <textarea id="project-brief-input" placeholder="Describe the experience goals, pages, 3D environment direction, interactions, content, performance targets, and deployment target."></textarea>
-              <div class="toolbar">
-                <button class="primary" id="save-brief-btn">Save Brief</button>
-                <button id="brief-core-team-btn">Brief Core Team</button>
-                <button id="start-loop-btn">Start Autonomy</button>
-                <button id="stop-loop-btn">Stop Autonomy</button>
+          <div class="panel stack">
+            <div class="label">Autonomous Mission Control</div>
+            <div class="sub">This is a closed autonomous system. Every agent continuously contributes to the PARKSystems website as an evolving 3D environment, all inside the assigned newpark workspace.</div>
+            <textarea id="project-brief-input" placeholder="Describe the experience goals, pages, 3D environment direction, interactions, content, performance targets, and deployment target."></textarea>
+            <div class="toolbar">
+              <button class="primary" id="save-brief-btn">Save Brief</button>
+              <button id="brief-core-team-btn">Brief Core Team</button>
+              <button id="start-loop-btn">Start Autonomy</button>
+              <button id="stop-loop-btn">Stop Autonomy</button>
+            </div>
+            <div id="loop-status" class="sub"></div>
+            <div class="grid-4">
+              <div class="panel">
+                <div class="label">Agents</div>
+                <div id="metric-agents" class="kpi">0</div>
+                <div class="sub">Builders online</div>
               </div>
-              <div id="loop-status" class="sub"></div>
-            </div>
-            <div class="panel stack">
-              <div class="label">Quick Launch</div>
-              <div class="quick-grid">
-                <button class="quick-action" data-template="Create the first PARKSystems landing page shell with strong navigation, hero messaging, and a clean black and orange visual system.">
-                  <strong>Landing Shell</strong>
-                  <span class="sub">Kick off the homepage structure.</span>
-                </button>
-                <button class="quick-action" data-template="Design and implement the 3D environment direction for PARKSystems with scene architecture, atmosphere, interaction plan, and asset flow.">
-                  <strong>3D Scene Plan</strong>
-                  <span class="sub">Start the environment and scene work.</span>
-                </button>
-                <button class="quick-action" data-template="Wire the frontend and backend build plan for a 3D website, including asset handling, APIs, forms, and deploy tasks.">
-                  <strong>System Plan</strong>
-                  <span class="sub">Align frontend, backend, and runtime.</span>
-                </button>
-                <button class="quick-action" data-template="Run a performance and release readiness cycle for the PARKSystems 3D website. Focus on build, test, scene performance, and deploy prep.">
-                  <strong>Release Pass</strong>
-                  <span class="sub">Push the team into polish mode.</span>
-                </button>
+              <div class="panel">
+                <div class="label">Rooms</div>
+                <div id="metric-rooms" class="kpi">0</div>
+                <div class="sub">Working threads</div>
+              </div>
+              <div class="panel">
+                <div class="label">Tasks</div>
+                <div id="metric-tasks" class="kpi">0</div>
+                <div class="sub">Tracked on board</div>
+              </div>
+              <div class="panel">
+                <div class="label">Failures</div>
+                <div id="metric-failures" class="kpi">0</div>
+                <div class="sub">Issues to clear</div>
               </div>
             </div>
-          </div>
-          <div class="grid-4">
-            <div class="panel">
-              <div class="label">Agents</div>
-              <div id="metric-agents" class="kpi">0</div>
-              <div class="sub">Builders online</div>
+            <div class="grid-3">
+              <div class="panel">
+                <div class="label">Backend</div>
+                <div id="backend-status" class="kpi">Checking</div>
+              </div>
+              <div class="panel">
+                <div class="label">Ollama</div>
+                <div id="ollama-status" class="kpi">Checking</div>
+              </div>
+              <div class="panel">
+                <div class="label">OpenClaw</div>
+                <div id="openclaw-status" class="kpi">Checking</div>
+              </div>
             </div>
-            <div class="panel">
-              <div class="label">Rooms</div>
-              <div id="metric-rooms" class="kpi">0</div>
-              <div class="sub">Working threads</div>
-            </div>
-            <div class="panel">
-              <div class="label">Tasks</div>
-              <div id="metric-tasks" class="kpi">0</div>
-              <div class="sub">Tracked on board</div>
-            </div>
-            <div class="panel">
-              <div class="label">Failures</div>
-              <div id="metric-failures" class="kpi">0</div>
-              <div class="sub">Issues to clear</div>
-            </div>
-          </div>
-          <div class="grid-3">
-            <div class="panel">
-              <div class="label">Backend</div>
-              <div id="backend-status" class="kpi">Checking</div>
-            </div>
-            <div class="panel">
-              <div class="label">Ollama</div>
-              <div id="ollama-status" class="kpi">Checking</div>
-            </div>
-            <div class="panel">
-              <div class="label">OpenClaw</div>
-              <div id="openclaw-status" class="kpi">Checking</div>
-            </div>
-          </div>
-          <div class="grid-2">
-            <div class="panel stack">
-              <div class="label">Project Boundary</div>
-              <div class="sub">All agent reads, writes, tests, builds, and deploys are restricted to the project path below.</div>
-              <div>
-                <div class="label">Website Project Path</div>
-                <div style="display:flex; gap:8px;">
-                  <input id="project-path-input">
-                  <button id="browse-project-btn">Browse</button>
+            <div class="grid-2">
+              <div class="panel stack">
+                <div class="label">Project Boundary</div>
+                <div class="sub">All agent reads, writes, tests, builds, and deploys are restricted to the project path below.</div>
+                <div>
+                  <div class="label">Website Project Path</div>
+                  <div style="display:flex; gap:8px;">
+                    <input id="project-path-input">
+                    <button id="browse-project-btn">Browse</button>
+                  </div>
+                </div>
+                <div class="toolbar">
+                  <button id="save-settings-btn">Save</button>
+                  <button id="probe-btn">Probe Runtime</button>
                 </div>
               </div>
-              <div class="toolbar">
-                <button id="save-settings-btn">Save</button>
-                <button id="probe-btn">Probe Runtime</button>
+              <div class="panel stack">
+                <div class="label">Deploy Pipeline</div>
+                <div>
+                  <div class="label">Build Command</div>
+                  <input id="build-command-input" placeholder="npm run build">
+                </div>
+                <div>
+                  <div class="label">Deploy Command</div>
+                  <input id="deploy-command-input" placeholder="npm run deploy">
+                </div>
+                <div class="toolbar">
+                  <button id="verify-deploy-btn">Verify</button>
+                  <button id="run-build-btn">Build</button>
+                  <button id="run-deploy-btn">Deploy</button>
+                </div>
+                <div id="deploy-output" class="viewer"></div>
               </div>
             </div>
             <div class="panel stack">
-              <div class="label">Deploy Pipeline</div>
-              <div>
-                <div class="label">Build Command</div>
-                <input id="build-command-input" placeholder="npm run build">
-              </div>
-              <div>
-                <div class="label">Deploy Command</div>
-                <input id="deploy-command-input" placeholder="npm run deploy">
-              </div>
-              <div class="toolbar">
-                <button id="verify-deploy-btn">Verify</button>
-                <button id="run-build-btn">Build</button>
-                <button id="run-deploy-btn">Deploy</button>
-              </div>
-              <div id="deploy-output" class="viewer"></div>
+              <div class="label">Backend Log</div>
+              <div id="agent-log" class="viewer"></div>
             </div>
-          </div>
-          <div class="panel stack">
-            <div class="label">Backend Log</div>
-            <div id="agent-log" class="viewer"></div>
           </div>
         </section>
         <section id="tab-chat" class="tab-panel hidden">
