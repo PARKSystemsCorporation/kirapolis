@@ -2,5 +2,10 @@
   "name": "@kiradex/desktop",
   "version": "0.1.0",
   "private": true,
-  "main": "dist/main.js"
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "electron dist/main.js"
+  }
 }

@@ -9,8 +9,10 @@
     "extensions/*"
   ],
   "scripts": {
-    "start": "electron apps/desktop/dist/main.js",
-    "start:agent": "node services/agent/dist/server.js",
+    "build": "npm run build --workspace @kiradex/agent --workspace @kiradex/desktop",
+    "typecheck": "npm run typecheck --workspace @kiradex/agent --workspace @kiradex/desktop",
+    "start": "npm run build && electron apps/desktop/dist/main.js",
+    "start:agent": "npm run build --workspace @kiradex/agent && node services/agent/dist/server.js",
     "clean": "node scripts/clean.mjs"
   }
 }

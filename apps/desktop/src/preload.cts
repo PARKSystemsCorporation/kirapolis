@@ -1,5 +1,3 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
 // @ts-nocheck
 const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("kiraDesktop", {
