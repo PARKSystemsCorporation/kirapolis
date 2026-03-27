@@ -25,6 +25,25 @@
       background: linear-gradient(180deg, rgba(255,122,26,0.05), transparent 120px), var(--bg);
       color: var(--text);
       font: 12px/1.4 "Segoe UI Variable Text", "Segoe UI", sans-serif;
+      color-scheme: dark;
+    }
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: #3a3a3a #090909;
+    }
+    *::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    *::-webkit-scrollbar-track {
+      background: #090909;
+    }
+    *::-webkit-scrollbar-thumb {
+      background: #2f2f2f;
+      border-radius: 999px;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+      background: #505050;
     }
     button, input, textarea, select { font: inherit; }
     button {
@@ -220,6 +239,85 @@
       margin-bottom: 4px;
       font-size: 13px;
     }
+    .chat-mode-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .chat-mode-tab {
+      border-radius: 10px;
+      padding: 8px 12px;
+      min-width: 0;
+    }
+    .chat-mode-tab.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .artifact-card {
+      border: 1px solid var(--line);
+      background: #101010;
+      border-radius: 12px;
+      padding: 12px;
+      display: grid;
+      gap: 7px;
+    }
+    .artifact-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .town-board {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      min-height: 220px;
+      background:
+        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 44px 44px;
+      border-radius: 12px;
+      padding: 18px;
+    }
+    .town-agent {
+      border: 1px solid #323232;
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      min-height: 148px;
+      border-radius: 0;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+    .town-agent.active {
+      border-color: var(--accent);
+    }
+    .town-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      font-size: 10px;
+    }
+    .town-name {
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    .town-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .tool-chip {
+      border: 1px solid #333;
+      padding: 2px 5px;
+      font-size: 10px;
+      color: var(--muted);
+    }
     @media (max-width: 1100px) {
       .app { grid-template-columns: 1fr; }
       .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -327,6 +425,13 @@
               <div class="sub">Issues to clear</div>
             </div>
           </div>
+          <div class="panel stack">
+            <div class="row-head">
+              <div class="label">Agents Town</div>
+              <div class="sub">Click a card to drop into that agent's room context.</div>
+            </div>
+            <div id="town-board" class="town-board"></div>
+          </div>
           <div class="grid-3">
             <div class="panel">
               <div class="label">Backend</div>
@@ -389,12 +494,16 @@
             </div>
             <div class="stack">
               <div class="panel compact">
-                <div class="toolbar">
-                  <div class="pill">Messenger</div>
-                  <div class="sub">Direct replies are appended into the selected room thread.</div>
+                <div class="row-head">
+                  <div class="chat-mode-tabs">
+                    <button class="chat-mode-tab active" id="chat-mode-messages">Messages</button>
+                    <button class="chat-mode-tab" id="chat-mode-worklog">Work Log</button>
+                  </div>
+                  <div class="sub">Room transcript and generated artifacts stay together.</div>
                 </div>
               </div>
               <div id="messages" class="messages"></div>
+              <div id="worklog-panel" class="viewer hidden"></div>
               <div class="panel stack">
                 <div class="label">Message</div>
                 <textarea id="message-input" placeholder="Brief the group or message an agent. Press Enter to send. Use Shift+Enter for a new line."></textarea>
@@ -477,8 +586,10 @@
       chats: [],
       activeChatId: null,
       activeTab: "control",
+      chatMode: "messages",
       fileItems: [],
       noteItems: [],
+      workLogItems: [],
       selectedFile: null,
       selectedNote: null
     };
@@ -553,6 +664,72 @@
       });
     }
 
+    function renderTownBoard() {
+      $("town-board").innerHTML = state.agents.map((agent) => `
+        <div class="town-agent ${agent.state === "active" ? "active" : ""}" data-town-agent="${escapeHtml(agent.id)}">
+          <div class="town-top">
+            <span>${escapeHtml(agent.role || "agent")}</span>
+            <span><span class="presence ${presenceClass(agent.presence)}"></span></span>
+          </div>
+          <div class="town-name">${escapeHtml(agent.name)}</div>
+          <div class="sub">${escapeHtml(agent.notes || "")}</div>
+          <div class="town-tools">${(agent.tools || []).slice(0, 4).map((tool) => `<span class="tool-chip">${escapeHtml(tool)}</span>`).join("")}</div>
+          <div class="sub mono">${escapeHtml(agent.state || "idle")}</div>
+        </div>
+      `).join("") || `<div class="empty">No agents available.</div>`;
+
+      [...document.querySelectorAll("[data-town-agent]")].forEach((node) => {
+        node.addEventListener("click", () => {
+          const agentId = node.getAttribute("data-town-agent");
+          const direct = state.chats.find((chat) => chat.type === "direct" && chat.members.includes(agentId));
+          const target = direct || state.chats.find((chat) => chat.members.includes(agentId)) || state.chats[0];
+          if (target) {
+            state.activeChatId = target.id;
+            setTab("chat");
+            renderChats();
+            renderActiveChat();
+          }
+        });
+      });
+    }
+
+    async function loadWorkLog(chatId) {
+      const chat = state.chats.find((entry) => entry.id === chatId);
+      if (!chat || chat.type !== "group") {
+        state.workLogItems = [];
+        $("worklog-panel").textContent = "Work log is available for group rooms only.";
+        return;
+      }
+      try {
+        const result = await api(`/api/messenger/groups/${encodeURIComponent(chatId)}/artifacts`);
+        state.workLogItems = result.items || [];
+        $("worklog-panel").innerHTML = state.workLogItems.length
+          ? state.workLogItems.map((item) => `
+              <div class="artifact-card">
+                <div class="artifact-meta">
+                  <span>${escapeHtml(item.kind || "note")} | ${escapeHtml(item.agentName || "")}</span>
+                  <span>${escapeHtml(formatTime(item.updatedAt))}</span>
+                </div>
+                <strong>${escapeHtml(item.title || item.path)}</strong>
+                <div>${escapeHtml(item.preview || "")}</div>
+                <div class="mono sub">${escapeHtml(item.path || "")}</div>
+              </div>
+            `).join("")
+          : `<div class="empty">No work log artifacts yet.</div>`;
+      } catch (error) {
+        state.workLogItems = [];
+        $("worklog-panel").textContent = String(error.message || error);
+      }
+    }
+
+    function setChatMode(mode) {
+      state.chatMode = mode;
+      $("chat-mode-messages").classList.toggle("active", mode === "messages");
+      $("chat-mode-worklog").classList.toggle("active", mode === "worklog");
+      $("messages").classList.toggle("hidden", mode !== "messages");
+      $("worklog-panel").classList.toggle("hidden", mode !== "worklog");
+    }
+
     function renderActiveChat() {
       const chat = state.chats.find((entry) => entry.id === state.activeChatId) || null;
       $("chat-title").textContent = chat ? chat.title : "Select a room";
@@ -563,6 +740,9 @@
           <div>${escapeHtml(message.content)}</div>
         </div>
       `).join("") : `<div class="empty">Select a room to see the conversation.</div>`;
+      if (state.chatMode === "worklog" && chat) {
+        loadWorkLog(chat.id).catch(() => null);
+      }
     }
 
     function renderWatch() {
@@ -639,11 +819,11 @@
     async function refreshSystem() {
       state.system = await window.kiraDesktop.getSystemStatus();
       const system = state.system;
-      $("backend-status").textContent = system.probes.backend.detail;
+      $("backend-status").textContent = system.probes.backend.ok ? "reachable" : "offline";
       $("backend-status").className = `kpi status ${system.probes.backend.ok ? "ok" : "bad"}`;
-      $("ollama-status").textContent = system.probes.ollama.detail;
+      $("ollama-status").textContent = system.probes.ollama.ok ? "reachable" : "offline";
       $("ollama-status").className = `kpi status ${system.probes.ollama.ok ? "ok" : "bad"}`;
-      $("openclaw-status").textContent = system.probes.openclaw.detail;
+      $("openclaw-status").textContent = system.probes.openclaw.ok ? "reachable" : "offline";
       $("openclaw-status").className = `kpi status ${system.probes.openclaw.ok ? "ok" : "bad"}`;
     }
 
@@ -654,6 +834,7 @@
       state.chats = state.board?.messenger?.chats || [];
       state.activeChatId = state.activeChatId || state.board?.messenger?.activeChatId || state.chats[0]?.id || null;
       renderAgents();
+      renderTownBoard();
       renderChats();
       renderActiveChat();
       renderWatch();
@@ -916,6 +1097,13 @@
           await sendMessage();
         }
       });
+      $("chat-mode-messages").addEventListener("click", () => setChatMode("messages"));
+      $("chat-mode-worklog").addEventListener("click", async () => {
+        setChatMode("worklog");
+        if (state.activeChatId) {
+          await loadWorkLog(state.activeChatId);
+        }
+      });
       $("refresh-chat-btn").addEventListener("click", refreshBoard);
       $("new-group-btn").addEventListener("click", createGroupChat);
       $("verify-deploy-btn").addEventListener("click", verifyDeploy);
@@ -939,6 +1127,7 @@
       await refreshSystem();
       await refreshBoard();
       await refreshIndexes();
+      setChatMode("messages");
       setInterval(() => {
         refreshBoard().catch(() => null);
       }, 7000);
