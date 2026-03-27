@@ -269,21 +269,21 @@
       font-size: 11px;
     }
     .town-board {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 12px;
-      min-height: 220px;
-      background:
-        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
-      background-size: 44px 44px;
+      display: flex;
+      flex-wrap: wrap;
+      align-content: flex-start;
+      align-items: flex-start;
+      gap: 16px;
+      min-height: 300px;
+      background: #000000;
       border-radius: 12px;
       padding: 18px;
     }
     .town-agent {
-      border: 1px solid #323232;
-      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-      min-height: 148px;
+      border: 1px solid #343434;
+      background: #121212;
+      width: 170px;
+      min-height: 154px;
       border-radius: 0;
       padding: 12px;
       display: grid;
@@ -306,6 +306,7 @@
       font-size: 14px;
       font-weight: 700;
       line-height: 1.15;
+      letter-spacing: -0.02em;
     }
     .town-tools {
       display: flex;
@@ -317,11 +318,13 @@
       padding: 2px 5px;
       font-size: 10px;
       color: var(--muted);
+      background: #0d0d0d;
     }
     @media (max-width: 1100px) {
       .app { grid-template-columns: 1fr; }
       .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
       .grid-2, .grid-3, .grid-4, .split, .quick-grid { grid-template-columns: 1fr; height: auto; }
+      .town-agent { width: 100%; }
     }
   </style>
 </head>
@@ -368,6 +371,13 @@
       </div>
       <div class="content">
         <section id="tab-control" class="tab-panel stack">
+          <div class="panel stack">
+            <div class="row-head">
+              <div class="label">Agents Town</div>
+              <div class="sub">Click any card to drop into that agent's room context.</div>
+            </div>
+            <div id="town-board" class="town-board"></div>
+          </div>
           <div class="grid-2">
             <div class="panel stack">
               <div class="label">Master Brief</div>
@@ -424,13 +434,6 @@
               <div id="metric-failures" class="kpi">0</div>
               <div class="sub">Issues to clear</div>
             </div>
-          </div>
-          <div class="panel stack">
-            <div class="row-head">
-              <div class="label">Agents Town</div>
-              <div class="sub">Click a card to drop into that agent's room context.</div>
-            </div>
-            <div id="town-board" class="town-board"></div>
           </div>
           <div class="grid-3">
             <div class="panel">
