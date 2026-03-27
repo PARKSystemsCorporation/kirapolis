@@ -801,14 +801,14 @@ async function ensureDefaultGroupChat() {
     state.messenger.chats.unshift({
         id: "group-core-team",
         type: "group",
-        title: "Core Team",
+        title: "Closed Loop",
         members: agents.map((agent) => agent.id),
         messages: [
             {
                 id: "msg-core-team-seed",
                 role: "system",
                 author: "KiraDex",
-                content: "Core Team is ready. Use this room to brief the default team and let the autonomy loop work from shared context.",
+                content: "Closed Loop is ready. Every agent contributes to the evolving PARKSystems environment through shared rooms, files, artifacts, and review cycles.",
                 createdAt: Date.now()
             }
         ],

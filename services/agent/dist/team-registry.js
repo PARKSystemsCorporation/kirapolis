@@ -54,123 +54,131 @@ function isPlaceholderModel(model) {
 }
 function createSeedAgents(controlRoot, projectRoot, models) {
     const now = Date.now();
-    return [
+    const specs = [
+        {
+            id: "agent-ceo",
+            name: "CEO",
+            role: "executive",
+            tools: ["planning", "workspace-read", "web"],
+            skills: ["executive-direction", "project-planning", "systems-thinking", "client-communication"],
+            notes: "Sets product direction, evaluates the evolving environment, and keeps the closed-loop system aligned with PARKSystems goals.",
+            isManager: true
+        },
         {
             id: "agent-manager",
             name: "Project Manager",
             role: "executive",
-            lotId: "world",
-            posX: 120,
-            posY: 120,
-            provider: defaultProviderForRole("executive"),
-            model: defaultModelForRole("executive", models),
-            tools: defaultToolsForRole("executive"),
-            skills: defaultSkillsForRole("executive"),
-            notes: "Project manager for website direction, task breakdown, and final review.",
-            lastBrief: "",
-            lastResponse: "",
-            state: "idle",
-            presence: "idle",
-            workspacePath: projectRoot,
-            repoBranch: "",
-            memoryPath: path.join(controlRoot, "data", "agents", "agent-manager", "memory.db"),
-            isManager: true,
-            createdAt: now,
-            updatedAt: now
-        },
-        {
-            id: "agent-frontend",
-            name: "Frontend Builder",
-            role: "coder",
-            lotId: "world",
-            posX: 340,
-            posY: 120,
-            provider: defaultProviderForRole("coder"),
-            model: defaultModelForRole("coder", models),
-            tools: defaultToolsForRole("coder"),
-            skills: defaultSkillsForRole("coder"),
-            notes: "Builds pages, components, styling, responsive UI, and frontend fixes.",
-            lastBrief: "",
-            lastResponse: "",
-            state: "idle",
-            presence: "idle",
-            workspacePath: projectRoot,
-            repoBranch: "",
-            memoryPath: path.join(controlRoot, "data", "agents", "agent-frontend", "memory.db"),
-            isManager: false,
-            createdAt: now,
-            updatedAt: now
-        },
-        {
-            id: "agent-backend",
-            name: "Backend Builder",
-            role: "coder",
-            lotId: "world",
-            posX: 560,
-            posY: 120,
-            provider: defaultProviderForRole("coder"),
-            model: defaultModelForRole("coder", models),
-            tools: defaultToolsForRole("coder"),
-            skills: ["form-wiring", "debugging", "qa-testing", "frontend-build"],
-            notes: "Builds APIs, form handling, integrations, validation, and backend logic.",
-            lastBrief: "",
-            lastResponse: "",
-            state: "idle",
-            presence: "idle",
-            workspacePath: projectRoot,
-            repoBranch: "",
-            memoryPath: path.join(controlRoot, "data", "agents", "agent-backend", "memory.db"),
-            isManager: false,
-            createdAt: now,
-            updatedAt: now
+            tools: ["planning", "workspace-read", "web"],
+            skills: ["project-planning", "delivery-management", "qa-testing", "client-communication"],
+            notes: "Breaks down work, coordinates rooms, reviews progress, and hands the next step to the right specialist."
         },
         {
             id: "agent-researcher",
             name: "Code Researcher",
             role: "executive",
-            lotId: "world",
-            posX: 780,
-            posY: 120,
-            provider: defaultProviderForRole("executive"),
-            model: defaultModelForRole("executive", models),
             tools: ["workspace-read", "web", "planning"],
-            skills: ["research", "library-scouting", "project-planning", "client-communication"],
-            notes: "Scouts implementation options, docs, code patterns, references, and technical risks before build work.",
-            lastBrief: "",
-            lastResponse: "",
-            state: "idle",
-            presence: "idle",
-            workspacePath: projectRoot,
-            repoBranch: "",
-            memoryPath: path.join(controlRoot, "data", "agents", "agent-researcher", "memory.db"),
-            isManager: false,
-            createdAt: now,
-            updatedAt: now
+            skills: ["research", "library-scouting", "technical-risk-analysis", "project-planning"],
+            notes: "Researches code patterns, engines, tooling, references, and implementation tradeoffs for the next build cycle."
+        },
+        {
+            id: "agent-frontend",
+            name: "Frontend Builder",
+            role: "coder",
+            tools: ["workspace-read", "workspace-write", "exec"],
+            skills: ["frontend-build", "ui-styling", "component-design", "responsive-layout"],
+            notes: "Builds pages, interaction surfaces, UI structure, and player-facing layout for the evolving website."
+        },
+        {
+            id: "agent-backend",
+            name: "Backend Builder",
+            role: "coder",
+            tools: ["workspace-read", "workspace-write", "exec"],
+            skills: ["api-design", "form-wiring", "validation", "debugging"],
+            notes: "Builds APIs, integrations, validation, persistence, and runtime support for the website system."
+        },
+        {
+            id: "agent-threejs",
+            name: "Three.js Builder",
+            role: "coder",
+            tools: ["workspace-read", "workspace-write", "exec"],
+            skills: ["threejs", "webgl", "shader-work", "scene-architecture"],
+            notes: "Owns Three.js scenes, rendering pipelines, lighting, camera systems, and 3D interactions."
+        },
+        {
+            id: "agent-babylon",
+            name: "Babylon.js Expert",
+            role: "coder",
+            tools: ["workspace-read", "workspace-write", "exec"],
+            skills: ["babylonjs", "realtime-rendering", "performance-optimization", "scene-tooling"],
+            notes: "Evaluates and builds Babylon.js-based scene systems, engine comparisons, and performance alternatives."
         },
         {
             id: "agent-environment",
             name: "Environment Artist",
             role: "coder",
-            lotId: "world",
-            posX: 1000,
-            posY: 120,
-            provider: defaultProviderForRole("coder"),
-            model: defaultModelForRole("coder", models),
             tools: ["workspace-read", "workspace-write", "planning"],
-            skills: ["environment-design", "worldbuilding", "prop-dressing", "ui-styling"],
-            notes: "Owns worldbuilding, environmental mood, props, references, and visual cohesion for expandable scenes.",
+            skills: ["environment-design", "worldbuilding", "prop-dressing", "visual-cohesion"],
+            notes: "Shapes the evolving environment, mood, layout, props, and spatial storytelling."
+        },
+        {
+            id: "agent-image",
+            name: "Image Creator",
+            role: "runner",
+            tools: ["workspace-read", "planning", "web"],
+            skills: ["concept-art-direction", "image-prompting", "visual-reference-curation", "style-guides"],
+            notes: "Creates image direction, concept prompts, mood boards, and references for the rest of the team."
+        },
+        {
+            id: "agent-github",
+            name: "GitHub Launcher",
+            role: "runner",
+            tools: ["workspace-read", "exec", "planning"],
+            skills: ["git-ops", "release-management", "deployment", "documentation"],
+            notes: "Owns git status, commits, pushes, release notes, and launch coordination after verification passes."
+        },
+        {
+            id: "agent-maintenance",
+            name: "Code Maintenance",
+            role: "runner",
+            tools: ["workspace-read", "workspace-write", "exec"],
+            skills: ["maintenance", "cleanup", "refactoring", "qa-testing"],
+            notes: "Keeps the codebase clean, removes dead files, fixes regressions, and improves the handoff quality between agents."
+        },
+        {
+            id: "agent-qa",
+            name: "QA And Launch",
+            role: "runner",
+            tools: ["workspace-read", "exec", "planning"],
+            skills: ["qa-testing", "verification", "performance-audits", "release-readiness"],
+            notes: "Runs the final checks, validates environment quality, and feeds failures back into the loop before launch."
+        }
+    ];
+    return specs.map((spec, index) => {
+        const position = defaultPosition(index);
+        return {
+            id: spec.id,
+            name: spec.name,
+            role: spec.role,
+            lotId: "world",
+            posX: position.x,
+            posY: position.y,
+            provider: defaultProviderForRole(spec.role),
+            model: defaultModelForRole(spec.role, models),
+            tools: spec.tools,
+            skills: spec.skills,
+            notes: spec.notes,
             lastBrief: "",
             lastResponse: "",
             state: "idle",
             presence: "idle",
             workspacePath: projectRoot,
             repoBranch: "",
-            memoryPath: path.join(controlRoot, "data", "agents", "agent-environment", "memory.db"),
-            isManager: false,
+            memoryPath: path.join(controlRoot, "data", "agents", spec.id, "memory.db"),
+            isManager: Boolean(spec.isManager),
             createdAt: now,
             updatedAt: now
-        }
-    ];
+        };
+    });
 }
 export class TeamRegistry {
     baseConfig;
