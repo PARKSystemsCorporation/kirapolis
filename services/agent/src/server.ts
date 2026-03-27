@@ -791,30 +791,49 @@ async function executeAgentPrompt(agentId, prompt, mode = "dispatch") {
 }
 async function ensureDefaultGroupChat() {
     const state = dashboardStore.getState();
-    if (state.messenger.chats.some((chat) => chat.type === "group")) {
-        return;
-    }
     const agents = teamRegistry.list();
     if (agents.length < 2) {
         return;
     }
-    state.messenger.chats.unshift({
-        id: "group-core-team",
-        type: "group",
-        title: "Closed Loop",
-        members: agents.map((agent) => agent.id),
-        messages: [
-            {
+    const memberIds = agents.map((agent) => agent.id);
+    const existing = state.messenger.chats.find((chat) => chat.id === "group-core-team");
+    if (existing) {
+        existing.type = "group";
+        existing.title = "Closed Loop";
+        existing.members = memberIds;
+        existing.origin = "system";
+        if (!Array.isArray(existing.messages)) {
+            existing.messages = [];
+        }
+        if (!existing.messages.some((message) => message.id === "msg-core-team-seed")) {
+            existing.messages.unshift({
                 id: "msg-core-team-seed",
                 role: "system",
                 author: "KiraDex",
                 content: "Closed Loop is ready. Every agent contributes to the evolving PARKSystems environment through shared rooms, files, artifacts, and review cycles.",
                 createdAt: Date.now()
-            }
-        ],
-        lastReadAt: 0,
-        origin: "system"
-    });
+            });
+        }
+    }
+    else {
+        state.messenger.chats.unshift({
+            id: "group-core-team",
+            type: "group",
+            title: "Closed Loop",
+            members: memberIds,
+            messages: [
+                {
+                    id: "msg-core-team-seed",
+                    role: "system",
+                    author: "KiraDex",
+                    content: "Closed Loop is ready. Every agent contributes to the evolving PARKSystems environment through shared rooms, files, artifacts, and review cycles.",
+                    createdAt: Date.now()
+                }
+            ],
+            lastReadAt: 0,
+            origin: "system"
+        });
+    }
     state.messenger.activeChatId = state.messenger.activeChatId || "group-core-team";
     await dashboardStore.setMessengerState(state.messenger);
 }
