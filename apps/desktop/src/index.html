@@ -137,6 +137,7 @@
       border-radius: 12px;
       padding: 10px 11px;
       cursor: pointer;
+      box-shadow: inset 0 0 0 1px transparent;
     }
     .row.active {
       border-color: rgba(255,122,26,0.65);
@@ -155,7 +156,7 @@
     .presence.green { background: var(--good); }
     .presence.yellow { background: var(--warn); }
     .presence.red { background: var(--bad); }
-    .presence.orange { background: var(--accent); }
+    .presence.orange { background: #8b5cf6; }
     .mono { font-family: Consolas, monospace; }
     .split {
       display: grid;
@@ -293,6 +294,53 @@
     .town-agent.active {
       border-color: var(--accent);
     }
+    .runtime-edge {
+      box-shadow: inset 0 0 0 1px transparent;
+    }
+    .runtime-edge.runtime-active {
+      box-shadow: inset 0 0 0 1px rgba(79, 209, 120, 0.85);
+      border-color: rgba(79, 209, 120, 0.55);
+    }
+    .runtime-edge.runtime-waiting {
+      box-shadow: inset 0 0 0 1px rgba(242, 189, 59, 0.9);
+      border-color: rgba(242, 189, 59, 0.55);
+    }
+    .runtime-edge.runtime-typing {
+      box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.95);
+      border-color: rgba(139, 92, 246, 0.6);
+    }
+    .runtime-edge.runtime-error {
+      box-shadow: inset 0 0 0 1px rgba(226, 81, 81, 0.95);
+      border-color: rgba(226, 81, 81, 0.65);
+    }
+    .runtime-note {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    .status-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      border: 1px solid #1f1f1f;
+      background: #333;
+    }
+    .legend-dot.typing { background: #8b5cf6; }
+    .legend-dot.waiting { background: var(--warn); }
+    .legend-dot.active { background: var(--good); }
+    .legend-dot.error { background: var(--bad); }
     .town-top {
       display: flex;
       justify-content: space-between;
@@ -389,6 +437,12 @@
               <button id="stop-loop-btn">Stop Autonomy</button>
             </div>
             <div id="loop-status" class="sub"></div>
+            <div class="status-legend">
+              <div class="legend-item"><span class="legend-dot typing"></span>Drafting</div>
+              <div class="legend-item"><span class="legend-dot waiting"></span>Waiting</div>
+              <div class="legend-item"><span class="legend-dot active"></span>Executing</div>
+              <div class="legend-item"><span class="legend-dot error"></span>Error</div>
+            </div>
             <div class="grid-4">
               <div class="panel">
                 <div class="label">Agents</div>
@@ -589,11 +643,39 @@
     }
 
     function presenceClass(value) {
-      if (value === "typing") return "yellow";
-      if (value === "waiting") return "red";
+      if (value === "typing") return "orange";
+      if (value === "waiting") return "yellow";
       if (value === "active") return "green";
-      if (value === "paused") return "orange";
+      if (value === "error") return "red";
       return "";
+    }
+
+    function runtimeClass(agent) {
+      if (agent.presence === "typing") return "runtime-typing";
+      if (agent.presence === "waiting") return "runtime-waiting";
+      if (agent.presence === "error" || agent.state === "error") return "runtime-error";
+      if (agent.presence === "active" || agent.state === "active") return "runtime-active";
+      return "";
+    }
+
+    function summarizeRuntime(agent) {
+      if (agent.presence === "typing") {
+        return "Drafting output";
+      }
+      if (agent.presence === "waiting") {
+        return "Waiting between loop steps";
+      }
+      if (agent.presence === "active" || agent.state === "active") {
+        return "Executing assigned work";
+      }
+      if (agent.presence === "error" || agent.state === "error") {
+        return "Error state. Check Ops for details.";
+      }
+      const source = String(agent.lastBrief || agent.lastResponse || "").trim();
+      if (!source) {
+        return "Idle";
+      }
+      return source.replace(/\s+/g, " ").slice(0, 84);
     }
 
     async function api(path, method = "GET", body) {
@@ -610,12 +692,13 @@
 
     function renderAgents() {
       $("agents-list").innerHTML = state.agents.map((agent) => `
-        <div class="row">
+        <div class="row runtime-edge ${runtimeClass(agent)}">
           <div class="row-head">
             <div><span class="presence ${presenceClass(agent.presence)}"></span><strong>${escapeHtml(agent.name)}</strong></div>
             <div class="sub">${escapeHtml(agent.role || "")}</div>
           </div>
           <div class="sub">${escapeHtml(agent.notes || "")}</div>
+          <div class="runtime-note">${escapeHtml(summarizeRuntime(agent))}</div>
           <div class="sub mono">${escapeHtml(agent.workspacePath || "")}</div>
         </div>
       `).join("") || `<div class="empty">No agents loaded.</div>`;
@@ -646,13 +729,14 @@
 
     function renderTownBoard() {
       $("town-board").innerHTML = state.agents.map((agent) => `
-        <div class="town-agent ${agent.state === "active" ? "active" : ""}" data-town-agent="${escapeHtml(agent.id)}">
+        <div class="town-agent runtime-edge ${agent.state === "active" ? "active" : ""} ${runtimeClass(agent)}" data-town-agent="${escapeHtml(agent.id)}">
           <div class="town-top">
             <span>${escapeHtml(agent.role || "agent")}</span>
             <span><span class="presence ${presenceClass(agent.presence)}"></span></span>
           </div>
           <div class="town-name">${escapeHtml(agent.name)}</div>
           <div class="sub">${escapeHtml(agent.notes || "")}</div>
+          <div class="runtime-note">${escapeHtml(summarizeRuntime(agent))}</div>
           <div class="town-tools">${(agent.tools || []).slice(0, 4).map((tool) => `<span class="tool-chip">${escapeHtml(tool)}</span>`).join("")}</div>
           <div class="sub mono">${escapeHtml(agent.state || "idle")}</div>
         </div>
@@ -819,7 +903,13 @@
       renderActiveChat();
       renderWatch();
       const heartbeat = await api("/api/team-heartbeat/status");
-      $("loop-status").textContent = heartbeat.lastDetail || "Autonomy loop is idle.";
+      const activeCount = Array.isArray(heartbeat.agents) ? heartbeat.agents.filter((agent) => agent.running).length : 0;
+      const waitingCount = Array.isArray(heartbeat.agents) ? heartbeat.agents.filter((agent) => !agent.running && !agent.lastError).length : 0;
+      if (heartbeat.active) {
+        $("loop-status").textContent = `${activeCount} agent loop${activeCount === 1 ? "" : "s"} running now. ${waitingCount} scheduled. ${heartbeat.lastDetail || ""}`.trim();
+      } else {
+        $("loop-status").textContent = heartbeat.lastDetail || "Autonomy loop is idle.";
+      }
     }
 
     async function refreshIndexes() {

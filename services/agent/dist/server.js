@@ -444,14 +444,78 @@ function normalizeTaskPlans(raw) {
         .filter((entry) => Boolean(entry))
         .slice(0, 10);
 }
-function fallbackTaskPlan(agent, chat) {
+function defaultAutonomyTasks(agent, chat) {
+    const roleLabel = agent?.role || "agent";
+    const agentName = agent?.name || "Agent";
     return [
         {
-            title: `${agent?.name || "Agent"} follow-up for ${chat.title}`,
-            detail: "Review the latest group discussion, identify the most urgent next step for your role, and produce a concrete update.",
-            searchTerms: [chat.title, agent?.role || "agent"]
+            title: `${agentName} intake review`,
+            detail: `Review the latest ${chat.title} room context and isolate the most urgent work for your ${roleLabel} role.`,
+            searchTerms: [chat.title, roleLabel, "intake"]
+        },
+        {
+            title: `${agentName} workspace scan`,
+            detail: "Inspect the most relevant files, artifacts, and notes related to the current room objective.",
+            searchTerms: [chat.title, roleLabel, "workspace"]
+        },
+        {
+            title: `${agentName} dependency check`,
+            detail: "Identify blockers, missing inputs, or dependencies from other specialists that affect the current turn.",
+            searchTerms: [chat.title, roleLabel, "dependencies"]
+        },
+        {
+            title: `${agentName} primary execution`,
+            detail: "Complete the highest-value concrete implementation or decision for this turn.",
+            searchTerms: [chat.title, roleLabel, "implementation"]
+        },
+        {
+            title: `${agentName} supporting execution`,
+            detail: "Complete the next supporting change, research pass, or content artifact that strengthens the primary work.",
+            searchTerms: [chat.title, roleLabel, "support"]
+        },
+        {
+            title: `${agentName} refinement`,
+            detail: "Refine the output for cohesion, clarity, quality, or usability inside the shared system.",
+            searchTerms: [chat.title, roleLabel, "refine"]
+        },
+        {
+            title: `${agentName} validation`,
+            detail: "Validate the work product against the room goal, project brief, and role requirements.",
+            searchTerms: [chat.title, roleLabel, "validate"]
+        },
+        {
+            title: `${agentName} cleanup`,
+            detail: "Clean up naming, file structure, notes, or follow-through details needed for a good handoff.",
+            searchTerms: [chat.title, roleLabel, "cleanup"]
+        },
+        {
+            title: `${agentName} artifact summary`,
+            detail: "Summarize the concrete artifacts, decisions, or file outputs produced during this turn.",
+            searchTerms: [chat.title, roleLabel, "artifacts"]
+        },
+        {
+            title: `${agentName} handoff prep`,
+            detail: "Prepare the next-step guidance another agent can use immediately in the next loop.",
+            searchTerms: [chat.title, roleLabel, "handoff"]
         }
     ];
+}
+function ensureAutonomyTaskCount(agent, chat, tasks) {
+    const normalized = normalizeTaskPlans(tasks);
+    const defaults = defaultAutonomyTasks(agent, chat);
+    const filled = [...normalized];
+    while (filled.length < 10) {
+        const template = defaults[filled.length] || defaults[defaults.length - 1];
+        filled.push({
+            title: template.title,
+            detail: template.detail,
+            searchTerms: [...template.searchTerms]
+        });
+    }
+    return filled.slice(0, 10);
+}
+function fallbackTaskPlan(agent, chat) {
+    return ensureAutonomyTaskCount(agent, chat, []);
 }
 async function ensureDirectory(directoryPath) {
     await fs.mkdir(directoryPath, { recursive: true });
@@ -637,9 +701,10 @@ async function buildWorkspaceIndex(rootPath, matcher, currentPath = rootPath, re
 async function generateAutonomyTasks(agent, chat, searchHits) {
     const prompt = [
         "Generate a task list for your next autonomy cycle.",
-        "Return JSON only: an array of up to 10 objects with keys title, detail, searchTerms.",
+        "Return JSON only: an array of exactly 10 objects with keys title, detail, searchTerms.",
         "The tasks must fit your role, the latest group chat context, and the documents found.",
         "Prefer concrete, sequential tasks that can be completed in one cycle.",
+        "Do not include meta commentary. Do not skip task slots.",
         `Group: ${chat.title}`,
         `Role: ${agent.role}`,
         agent.notes ? `Role notes: ${agent.notes}` : "",
@@ -655,8 +720,7 @@ async function generateAutonomyTasks(agent, chat, searchHits) {
     }
     try {
         const parsed = JSON.parse(jsonBlock);
-        const tasks = normalizeTaskPlans(parsed);
-        return tasks.length ? tasks : fallbackTaskPlan(agent, chat);
+        return ensureAutonomyTaskCount(agent, chat, parsed);
     }
     catch {
         return fallbackTaskPlan(agent, chat);
@@ -723,7 +787,22 @@ async function setAgentPresence(agentId, presence) {
     if (!agent) {
         return;
     }
-    await teamRegistry.upsert({ id: agentId, presence });
+    await teamRegistry.upsert({
+        id: agentId,
+        presence,
+        state: presence === "error" ? "error" : (presence === "active" ? "active" : agent.state === "error" ? "idle" : agent.state)
+    });
+}
+async function setAgentError(agentId) {
+    const agent = teamRegistry.get(agentId);
+    if (!agent) {
+        return;
+    }
+    await teamRegistry.upsert({
+        id: agentId,
+        presence: "error",
+        state: "error"
+    });
 }
 function agentActivityTitles(agentName, mode) {
     switch (mode) {
@@ -963,34 +1042,67 @@ class TeamHeartbeat {
         lastError: "",
         lastDetail: "Autonomy loop is off."
     };
-    timer = null;
-    running = false;
+    agentLoops = new Map();
     getStatus() {
-        return { ...this.status };
+        return {
+            ...this.status,
+            agents: Array.from(this.agentLoops.entries()).map(([agentId, loop]) => ({
+                agentId,
+                running: Boolean(loop?.running),
+                cyclesCompleted: Number(loop?.cyclesCompleted || 0),
+                lastRunAt: loop?.lastRunAt || null,
+                nextRunAt: loop?.nextRunAt || null,
+                currentChatId: loop?.currentChatId || "",
+                lastDetail: loop?.lastDetail || "",
+                lastError: loop?.lastError || ""
+            }))
+        };
     }
     async start(intervalMs = 60000, maxAgentsPerCycle = 10) {
         this.status.active = true;
         this.status.intervalMs = Math.max(15000, Math.min(intervalMs, 3600000));
         this.status.maxAgentsPerCycle = Math.max(1, Math.min(maxAgentsPerCycle, 10));
         this.status.lastError = "";
-        this.status.lastDetail = "Autonomy loop active.";
+        this.status.lastDetail = "Autonomy schedulers active. Each agent runs its own loop.";
+        this.syncAgentLoops();
+        for (const [agentId, loop] of this.agentLoops.entries()) {
+            if (loop?.timer) {
+                clearTimeout(loop.timer);
+            }
+            this.agentLoops.set(agentId, {
+                ...loop,
+                timer: null,
+                nextRunAt: null
+            });
+        }
         await dashboardStore.addActivity({
             source: "autonomy",
             agentId: "",
             agentName: "Autonomy Loop",
             status: "working",
             title: "Autonomy loop started",
-            detail: `Runs every ${this.status.intervalMs}ms across active group chats.`
+            detail: `Every eligible agent now runs its own autonomy loop on a ${this.status.intervalMs}ms schedule.`
         });
-        await this.runCycle();
+        await ensureDefaultGroupChat();
+        for (const agent of teamRegistry.list().filter((entry) => entry.state !== "paused")) {
+            void this.runAgentCycle(agent.id, true);
+        }
         return this.getStatus();
     }
     stop() {
         this.status.active = false;
         this.status.lastDetail = "Autonomy loop stopped.";
-        if (this.timer) {
-            clearTimeout(this.timer);
-            this.timer = null;
+        for (const [agentId, loop] of this.agentLoops.entries()) {
+            if (loop?.timer) {
+                clearTimeout(loop.timer);
+            }
+            this.agentLoops.set(agentId, {
+                ...loop,
+                timer: null,
+                nextRunAt: null,
+                running: false
+            });
+            void teamRegistry.upsert({ id: agentId, state: "idle", presence: "idle" });
         }
         void dashboardStore.addActivity({
             source: "autonomy",
@@ -998,87 +1110,131 @@ class TeamHeartbeat {
             agentName: "Autonomy Loop",
             status: "info",
             title: "Autonomy loop stopped",
-            detail: this.status.cyclesCompleted ? `Completed ${this.status.cyclesCompleted} cycles.` : "No cycles completed."
+            detail: this.status.cyclesCompleted ? `Completed ${this.status.cyclesCompleted} total agent turns.` : "No agent turns completed."
         });
         return this.getStatus();
     }
-    scheduleNextRun() {
+    syncAgentLoops() {
+        const activeIds = new Set(teamRegistry.list().map((agent) => agent.id));
+        for (const [agentId, loop] of this.agentLoops.entries()) {
+            if (!activeIds.has(agentId)) {
+                if (loop?.timer) {
+                    clearTimeout(loop.timer);
+                }
+                this.agentLoops.delete(agentId);
+            }
+        }
+        for (const agent of teamRegistry.list()) {
+            if (!this.agentLoops.has(agent.id)) {
+                this.agentLoops.set(agent.id, {
+                    timer: null,
+                    running: false,
+                    cyclesCompleted: 0,
+                    lastRunAt: null,
+                    nextRunAt: null,
+                    currentChatId: "",
+                    lastDetail: "Waiting for autonomy start.",
+                    lastError: "",
+                    nextChatIndex: 0
+                });
+            }
+        }
+    }
+    scheduleAgentRun(agentId, delayMs = this.status.intervalMs) {
         if (!this.status.active) {
             return;
         }
-        if (this.timer) {
-            clearTimeout(this.timer);
-        }
-        this.timer = setTimeout(() => {
-            void this.runCycle();
-        }, this.status.intervalMs);
-    }
-    async runCycle() {
-        if (!this.status.active || this.running) {
+        const loop = this.agentLoops.get(agentId);
+        if (!loop) {
             return;
         }
-        this.running = true;
-        this.status.lastRunAt = Date.now();
+        if (loop.timer) {
+            clearTimeout(loop.timer);
+        }
+        const waitMs = Math.max(1000, delayMs);
+        loop.nextRunAt = Date.now() + waitMs;
+        loop.timer = setTimeout(() => {
+            void this.runAgentCycle(agentId);
+        }, waitMs);
+        this.agentLoops.set(agentId, loop);
+    }
+    async runAgentCycle(agentId, immediate = false) {
+        if (!this.status.active) {
+            return;
+        }
+        const agent = teamRegistry.get(agentId);
+        if (!agent || agent.state === "paused") {
+            return;
+        }
+        this.syncAgentLoops();
+        const loop = this.agentLoops.get(agentId);
+        if (!loop || loop.running) {
+            return;
+        }
+        if (loop.timer) {
+            clearTimeout(loop.timer);
+            loop.timer = null;
+        }
+        loop.running = true;
+        loop.lastRunAt = Date.now();
+        loop.nextRunAt = null;
+        loop.lastError = "";
+        loop.lastDetail = immediate ? "Starting first independent agent turn." : "Running scheduled agent turn.";
+        this.agentLoops.set(agentId, loop);
+        this.status.lastRunAt = loop.lastRunAt;
         try {
             await ensureDefaultGroupChat();
             const board = dashboardStore.getState();
-            const allAgents = teamRegistry.list().filter((agent) => agent.state !== "paused");
             const groupChats = board.messenger.chats.filter((chat) => chat.type === "group" && chat.members.length >= 2);
-            const cycleNotes = [];
             if (!groupChats.length) {
-                cycleNotes.push("No group chats are available for autonomy yet.");
+                loop.lastDetail = `${agent.name} is waiting for an active room.`;
+                await teamRegistry.upsert({ id: agent.id, state: "idle", presence: "waiting" });
+                return;
             }
-            for (const agent of allAgents) {
-                const memberships = groupChats.filter((chat) => chat.members.includes(agent.id));
-                if (!memberships.length) {
-                    cycleNotes.push(`${agent.name} has no group chats to work from.`);
-                    continue;
-                }
-                await teamRegistry.upsert({ id: agent.id, state: "active", presence: "active" });
-                try {
-                    for (let index = 0; index < memberships.length; index += 1) {
-                        cycleNotes.push(await runAgentGroupCycle(agent, memberships[index], index));
-                    }
-                }
-                catch (error) {
-                    const message = describeError(error);
-                    await dashboardStore.addFailure("team-heartbeat", `Autonomy cycle failed for ${agent.name}`, message);
-                    await teamRegistry.upsert({ id: agent.id, state: "idle", presence: "idle" });
-                    cycleNotes.push(`${agent.name} failed: ${message}`);
-                    continue;
-                }
-                await teamRegistry.upsert({ id: agent.id, state: "idle", presence: "idle" });
+            const memberships = groupChats.filter((chat) => chat.members.includes(agent.id));
+            if (!memberships.length) {
+                loop.lastDetail = `${agent.name} is waiting for room membership.`;
+                await teamRegistry.upsert({ id: agent.id, state: "idle", presence: "waiting" });
+                return;
             }
-            const custodian = allAgents.find((agent) => /chat custodian/i.test(agent.name) || /chat custodian/i.test(agent.notes));
-            const removableChats = board.messenger.chats.filter((chat) => chat.origin !== "user").length;
-            if (custodian && removableChats >= 8) {
-                const cleanupDetail = await cleanupDeletableChats();
-                await recordAgentActivity(custodian, "autonomy", "done", "Chat cleanup heartbeat", cleanupDetail);
-                cycleNotes.push(cleanupDetail);
-            }
-            if (!cycleNotes.length) {
-                cycleNotes.push("Autonomy loop found no eligible agent work this cycle.");
-            }
+            const selectedIndex = loop.nextChatIndex % memberships.length;
+            const chat = memberships[selectedIndex];
+            loop.nextChatIndex += 1;
+            loop.currentChatId = chat.id;
+            await teamRegistry.upsert({ id: agent.id, state: "active", presence: "active" });
+            const detail = await runAgentGroupCycle(agent, chat, loop.cyclesCompleted);
+            loop.currentChatId = "";
+            loop.cyclesCompleted += 1;
+            loop.lastDetail = detail;
             this.status.cyclesCompleted += 1;
             this.status.lastError = "";
-            this.status.lastDetail = cycleNotes.join(" | ");
+            this.status.lastDetail = `${agent.name} completed a turn in ${chat.title}.`;
             await dashboardStore.addActivity({
                 source: "autonomy",
-                agentId: "",
-                agentName: "Autonomy Loop",
+                agentId: agent.id,
+                agentName: agent.name,
                 status: "info",
-                title: "Autonomy cycle",
-                detail: this.status.lastDetail
+                title: "Autonomy turn completed",
+                detail
             });
+            await teamRegistry.upsert({ id: agent.id, state: "idle", presence: "waiting" });
         }
         catch (error) {
-            this.status.lastError = describeError(error);
-            this.status.lastDetail = this.status.lastError;
-            await dashboardStore.addFailure("team-heartbeat", "Autonomy cycle failed", this.status.lastError);
+            const message = describeError(error);
+            loop.currentChatId = "";
+            loop.lastError = message;
+            loop.lastDetail = `${agent.name} failed: ${message}`;
+            this.status.lastError = message;
+            this.status.lastDetail = loop.lastDetail;
+            await dashboardStore.addFailure(agent.id, `Autonomy turn failed for ${agent.name}`, message);
+            await setAgentError(agent.id);
         }
         finally {
-            this.running = false;
-            this.scheduleNextRun();
+            loop.running = false;
+            this.agentLoops.set(agentId, loop);
+            if (this.status.active) {
+                this.scheduleAgentRun(agentId, this.status.intervalMs);
+            }
         }
     }
 }
@@ -1372,7 +1528,7 @@ app.get("/api/team-heartbeat/status", (_req, res) => {
 app.post("/api/team-heartbeat/start", async (req, res) => {
     const schema = z.object({
         intervalMs: z.number().int().min(15000).max(3600000).optional(),
-        maxAgentsPerCycle: z.number().int().min(1).max(8).optional()
+        maxAgentsPerCycle: z.number().int().min(1).max(64).optional()
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
@@ -1411,6 +1567,7 @@ app.post("/api/team/chat", async (req, res) => {
     catch (error) {
         await dashboardStore.addFailure("team-chat", `Agent chat failed for ${parsed.data.agentId}`, describeError(error));
         const failedAgent = teamRegistry.get(parsed.data.agentId);
+        await setAgentError(parsed.data.agentId);
         await recordAgentActivity(failedAgent, parsed.data.mode === "messenger" ? "messenger" : "dispatch", "issue", `${failedAgent?.name || parsed.data.agentId} failed`, describeError(error));
         return res.status(500).json({ error: describeError(error) });
     }
@@ -1501,6 +1658,7 @@ app.post("/api/team/agents/:agentId/git/push", async (req, res) => {
     }
     catch (error) {
         await dashboardStore.addFailure("git-push", `Git push failed for ${agent.id}`, describeError(error));
+        await setAgentError(agent.id);
         await recordAgentActivity(agent, "git", "issue", `${agent.name} push failed`, describeError(error));
         return res.status(500).json({ error: describeError(error) });
     }
