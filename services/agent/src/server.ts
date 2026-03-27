@@ -325,11 +325,71 @@ function safeFileStem(value) {
 function groupFolderName(chat) {
     return `${slugifyName(chat.title || "group")}-${safeFileStem(chat.id)}`;
 }
+function projectGroupsRoot() {
+    return path.join(config.projectRoot, "data", "groups");
+}
+function legacyControlGroupsRoot() {
+    return path.join(config.controlRoot, "data", "groups");
+}
 function groupFolderPath(chat) {
-    return path.join(config.controlRoot, "data", "groups", groupFolderName(chat));
+    return path.join(projectGroupsRoot(), groupFolderName(chat));
 }
 function relativeFromWorkspace(absolutePath) {
-    return path.relative(config.controlRoot, absolutePath) || ".";
+    return path.relative(config.projectRoot, absolutePath) || ".";
+}
+async function migrateLegacyGroupArtifacts() {
+    const sourceRoot = legacyControlGroupsRoot();
+    const targetRoot = projectGroupsRoot();
+    let entries;
+    try {
+        entries = await fs.readdir(sourceRoot, { withFileTypes: true });
+    }
+    catch {
+        return;
+    }
+    await fs.mkdir(targetRoot, { recursive: true });
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        const sourcePath = path.join(sourceRoot, entry.name);
+        const targetPath = path.join(targetRoot, entry.name);
+        try {
+            await fs.access(targetPath);
+        }
+        catch {
+            await fs.rename(sourcePath, targetPath);
+            continue;
+        }
+        const stack = [[sourcePath, targetPath]];
+        while (stack.length) {
+            const [fromDir, toDir] = stack.pop();
+            await fs.mkdir(toDir, { recursive: true });
+            const nested = await fs.readdir(fromDir, { withFileTypes: true });
+            for (const item of nested) {
+                const fromPath = path.join(fromDir, item.name);
+                const toPath = path.join(toDir, item.name);
+                if (item.isDirectory()) {
+                    stack.push([fromPath, toPath]);
+                    continue;
+                }
+                try {
+                    await fs.access(toPath);
+                }
+                catch {
+                    await fs.rename(fromPath, toPath);
+                }
+            }
+        }
+        await fs.rm(sourcePath, { recursive: true, force: true });
+    }
+    try {
+        const remaining = await fs.readdir(sourceRoot);
+        if (!remaining.length) {
+            await fs.rm(sourceRoot, { recursive: true, force: true });
+        }
+    }
+    catch { }
 }
 function recentTranscript(chat, limit = 12) {
     return (chat.messages || [])
@@ -390,7 +450,7 @@ async function listGroupArtifacts(chatId) {
             return {
                 id: `${chat.id}:${relativePath}`,
                 kind: bucket,
-                path: `__control__/${path.join(relativeFromWorkspace(groupFolderPath(chat)), relativePath).replace(/\\/g, "/")}`,
+                path: path.join(relativeFromWorkspace(groupFolderPath(chat)), relativePath).replace(/\\/g, "/"),
                 title: heading || path.basename(absolutePath),
                 preview: preview || "No preview available.",
                 updatedAt: stats.mtimeMs || stats.ctimeMs || Date.now(),
@@ -1885,6 +1945,7 @@ app.post("/api/workspace/write", async (req, res) => {
 await baseBrain.init();
 await teamRegistry.init();
 await dashboardStore.init();
+await migrateLegacyGroupArtifacts();
 await ensureDefaultGroupChat();
 const managerAgent = teamRegistry.list().find((agent) => agent.isManager);
 const managerBrain = managerAgent ? await teamRegistry.getBrain(managerAgent.id) : baseBrain;

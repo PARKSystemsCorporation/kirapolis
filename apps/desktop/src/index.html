@@ -851,7 +851,7 @@
         <div class="row ${state.selectedFile === item.path ? "active" : ""}" data-file-path="${escapeHtml(item.path)}">
           <strong>${escapeHtml(item.path)}</strong>
         </div>
-      `).join("") || `<div class="empty">No files found in project workspace.</div>`;
+      `).join("") || `<div class="empty">No website files found in <span class="mono">newpark</span> yet. Agents have only produced runtime artifacts or notes so far.</div>`;
       [...document.querySelectorAll("[data-file-path]")].forEach((node) => {
         node.addEventListener("click", () => {
           state.selectedFile = node.getAttribute("data-file-path");
@@ -865,7 +865,7 @@
         <div class="row ${state.selectedNote === item.path ? "active" : ""}" data-note-path="${escapeHtml(item.path)}">
           <strong>${escapeHtml(item.path)}</strong>
         </div>
-      `).join("") || `<div class="empty">No notes found.</div>`;
+      `).join("") || `<div class="empty">No notes or task artifacts found in <span class="mono">newpark\\data\\groups</span>.</div>`;
       [...document.querySelectorAll("[data-note-path]")].forEach((node) => {
         node.addEventListener("click", () => {
           state.selectedNote = node.getAttribute("data-note-path");
