@@ -1,0 +1,14 @@
+node_modules/
+out/
+.turbo/
+.vscode-test/
+coverage/
+*.log
+.env
+.env.local
+data/**/*.db
+data/groups/**
+!apps/desktop/dist/
+!apps/desktop/dist/**
+!services/agent/dist/
+!services/agent/dist/**

@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KiraDex</title>
+  <style>
+    :root {
+      --bg: #000;
+      --panel: #0b0b0b;
+      --panel-2: #111;
+      --line: #242424;
+      --text: #f1f1f1;
+      --muted: #9a9a9a;
+      --accent: #ff7a1a;
+      --good: #42c36a;
+      --warn: #f0c330;
+      --bad: #d24848;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 "Segoe UI", sans-serif; }
+    button, input, textarea, select { font: inherit; }
+    button {
+      background: #101010;
+      color: var(--text);
+      border: 1px solid var(--line);
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); color: #fff; }
+    input, textarea {
+      width: 100%;
+      background: #080808;
+      color: var(--text);
+      border: 1px solid var(--line);
+      padding: 8px 10px;
+    }
+    textarea { min-height: 84px; resize: vertical; }
+    .app {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      height: 100vh;
+    }
+    .sidebar, .main { min-height: 0; }
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: #050505;
+      padding: 16px;
+      overflow: auto;
+    }
+    .main {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-width: 0;
+    }
+    .header {
+      border-bottom: 1px solid var(--line);
+      padding: 16px 18px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+    }
+    .tab.active {
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .content {
+      padding: 18px;
+      overflow: auto;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      padding: 14px;
+    }
+    .stack { display: grid; gap: 14px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+    .big { font-size: 30px; line-height: 1.1; margin: 4px 0 6px; }
+    .sub { color: var(--muted); }
+    .list { display: grid; gap: 8px; }
+    .row {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      padding: 10px;
+      cursor: pointer;
+    }
+    .row.active { border-color: var(--accent); }
+    .row-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .presence {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      display: inline-block;
+      background: #3b3b3b;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    .presence.green { background: var(--good); }
+    .presence.yellow { background: var(--warn); }
+    .presence.red { background: var(--bad); }
+    .presence.orange { background: var(--accent); }
+    .mono { font-family: Consolas, monospace; }
+    .split {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 14px;
+      min-height: 0;
+      height: calc(100vh - 120px);
+    }
+    .viewer {
+      white-space: pre-wrap;
+      overflow: auto;
+      background: #050505;
+      border: 1px solid var(--line);
+      padding: 14px;
+      min-height: 380px;
+    }
+    .messages {
+      display: grid;
+      gap: 10px;
+      max-height: calc(100vh - 340px);
+      overflow: auto;
+    }
+    .message {
+      border: 1px solid var(--line);
+      background: #0d0d0d;
+      padding: 10px;
+    }
+    .message small { color: var(--muted); display: block; margin-bottom: 6px; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .status.ok { color: var(--good); }
+    .status.bad { color: var(--bad); }
+    .hidden { display: none !important; }
+    .kpi { font-size: 20px; margin-top: 4px; }
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+      .grid-2, .grid-3, .split { grid-template-columns: 1fr; height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="panel stack">
+        <div>
+          <div class="label">KiraDex Desktop</div>
+          <div class="big">Mission Control</div>
+          <div class="sub">Control plane in <span class="mono">C:\kiradex</span>. Agents build only in <span class="mono" id="project-path-inline"></span>.</div>
+        </div>
+        <div class="toolbar">
+          <button id="open-workspace-btn">Open Project</button>
+          <button id="open-codium-btn">Open VSCodium</button>
+          <button id="restart-agent-btn">Restart Backend</button>
+        </div>
+      </div>
+      <div class="panel stack" style="margin-top:14px;">
+        <div class="label">Agents</div>
+        <div id="agents-list" class="list"></div>
+      </div>
+      <div class="panel stack" style="margin-top:14px;">
+        <div class="row-head">
+          <div class="label">Chats And Groups</div>
+          <button id="new-group-btn">New Group</button>
+        </div>
+        <div id="chats-list" class="list"></div>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="header">
+        <div class="tabs">
+          <button class="tab active" data-tab="control">Control</button>
+          <button class="tab" data-tab="chat">Chat</button>
+          <button class="tab" data-tab="watch">Watch</button>
+          <button class="tab" data-tab="files">Files</button>
+          <button class="tab" data-tab="notes">Notes</button>
+        </div>
+        <div id="banner" class="sub"></div>
+      </div>
+      <div class="content">
+        <section id="tab-control" class="tab-panel stack">
+          <div class="grid-3">
+            <div class="panel">
+              <div class="label">Backend</div>
+              <div id="backend-status" class="kpi">Checking</div>
+            </div>
+            <div class="panel">
+              <div class="label">Ollama</div>
+              <div id="ollama-status" class="kpi">Checking</div>
+            </div>
+            <div class="panel">
+              <div class="label">OpenClaw</div>
+              <div id="openclaw-status" class="kpi">Checking</div>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="panel stack">
+              <div class="label">Project Boundary</div>
+              <div class="sub">All agent reads, writes, tests, builds, and deploys are restricted to the project path below.</div>
+              <div>
+                <div class="label">Website Project Path</div>
+                <div style="display:flex; gap:8px;">
+                  <input id="project-path-input">
+                  <button id="browse-project-btn">Browse</button>
+                </div>
+              </div>
+              <div class="toolbar">
+                <button id="save-settings-btn">Save</button>
+                <button id="probe-btn">Probe Runtime</button>
+                <button id="start-loop-btn">Start Autonomy</button>
+                <button id="stop-loop-btn">Stop Autonomy</button>
+              </div>
+              <div id="loop-status" class="sub"></div>
+            </div>
+            <div class="panel stack">
+              <div class="label">Deploy Pipeline</div>
+              <div>
+                <div class="label">Build Command</div>
+                <input id="build-command-input" placeholder="npm run build">
+              </div>
+              <div>
+                <div class="label">Deploy Command</div>
+                <input id="deploy-command-input" placeholder="npm run deploy">
+              </div>
+              <div class="toolbar">
+                <button id="verify-deploy-btn">Verify</button>
+                <button id="run-build-btn">Build</button>
+                <button id="run-deploy-btn">Deploy</button>
+              </div>
+              <div id="deploy-output" class="viewer"></div>
+            </div>
+          </div>
+          <div class="panel stack">
+            <div class="label">Backend Log</div>
+            <div id="agent-log" class="viewer"></div>
+          </div>
+        </section>
+        <section id="tab-chat" class="tab-panel hidden">
+          <div class="split">
+            <div class="panel stack">
+              <div class="label">Conversation</div>
+              <div id="chat-title" class="kpi">Select a chat</div>
+              <div id="chat-members" class="sub"></div>
+            </div>
+            <div class="stack">
+              <div id="messages" class="messages"></div>
+              <div class="panel stack">
+                <div class="label">Message</div>
+                <textarea id="message-input" placeholder="Brief the group or message an agent."></textarea>
+                <div class="toolbar">
+                  <button id="send-message-btn">Send</button>
+                  <button id="refresh-chat-btn">Refresh</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section id="tab-watch" class="tab-panel hidden stack">
+          <div class="grid-2">
+            <div class="panel stack">
+              <div class="row-head">
+                <div class="label">Activity</div>
+                <button id="clear-activity-btn">Clear</button>
+              </div>
+              <div id="activity-list" class="list"></div>
+            </div>
+            <div class="panel stack">
+              <div class="row-head">
+                <div class="label">Failures</div>
+                <button id="clear-failures-btn">Clear</button>
+              </div>
+              <div id="failures-list" class="list"></div>
+            </div>
+          </div>
+          <div class="panel stack">
+            <div class="label">Tasks</div>
+            <div id="tasks-list" class="list"></div>
+          </div>
+        </section>
+        <section id="tab-files" class="tab-panel hidden">
+          <div class="split">
+            <div class="panel stack">
+              <div class="row-head">
+                <div class="label">Files In Newpark</div>
+                <button id="refresh-files-btn">Refresh</button>
+              </div>
+              <div id="files-list" class="list"></div>
+            </div>
+            <div class="stack">
+              <div class="toolbar">
+                <button id="open-file-btn">Open</button>
+                <button id="delete-file-btn">Delete</button>
+              </div>
+              <div id="file-viewer" class="viewer"></div>
+            </div>
+          </div>
+        </section>
+        <section id="tab-notes" class="tab-panel hidden">
+          <div class="split">
+            <div class="panel stack">
+              <div class="row-head">
+                <div class="label">Notes</div>
+                <button id="refresh-notes-btn">Refresh</button>
+              </div>
+              <div id="notes-list" class="list"></div>
+            </div>
+            <div class="stack">
+              <div class="toolbar">
+                <button id="open-note-btn">Open</button>
+                <button id="delete-note-btn">Delete</button>
+              </div>
+              <div id="note-viewer" class="viewer"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script>
+    const state = {
+      bootstrap: null,
+      system: null,
+      board: null,
+      agents: [],
+      chats: [],
+      activeChatId: null,
+      activeTab: "control",
+      fileItems: [],
+      noteItems: [],
+      selectedFile: null,
+      selectedNote: null
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function escapeHtml(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function formatTime(value) {
+      if (!value) return "";
+      try { return new Date(value).toLocaleString(); } catch { return ""; }
+    }
+
+    function presenceClass(value) {
+      if (value === "typing") return "yellow";
+      if (value === "waiting") return "red";
+      if (value === "active") return "green";
+      if (value === "paused") return "orange";
+      return "";
+    }
+
+    async function api(path, method = "GET", body) {
+      const response = await window.kiraDesktop.http({ path, method, body });
+      if (!response.ok) {
+        throw new Error(response.data?.error || `Request failed: ${response.status}`);
+      }
+      return response.data;
+    }
+
+    function setBanner(message) {
+      $("banner").textContent = message || "";
+    }
+
+    function renderAgents() {
+      $("agents-list").innerHTML = state.agents.map((agent) => `
+        <div class="row">
+          <div class="row-head">
+            <div><span class="presence ${presenceClass(agent.presence)}"></span><strong>${escapeHtml(agent.name)}</strong></div>
+            <div class="sub">${escapeHtml(agent.role || "")}</div>
+          </div>
+          <div class="sub">${escapeHtml(agent.notes || "")}</div>
+          <div class="sub mono">${escapeHtml(agent.workspacePath || "")}</div>
+        </div>
+      `).join("") || `<div class="sub">No agents loaded.</div>`;
+    }
+
+    function renderChats() {
+      $("chats-list").innerHTML = state.chats.map((chat) => {
+        const active = chat.id === state.activeChatId ? "active" : "";
+        const count = chat.messages?.length || 0;
+        return `
+          <div class="row ${active}" data-chat-id="${escapeHtml(chat.id)}">
+            <div class="row-head">
+              <strong>${escapeHtml(chat.title)}</strong>
+              <div class="sub">${count}</div>
+            </div>
+            <div class="sub">${chat.type === "group" ? "Group" : "Direct"}${chat.members?.length ? ` | ${chat.members.length} member(s)` : ""}</div>
+          </div>
+        `;
+      }).join("") || `<div class="sub">No chats yet.</div>`;
+      [...document.querySelectorAll("[data-chat-id]")].forEach((node) => {
+        node.addEventListener("click", () => {
+          state.activeChatId = node.getAttribute("data-chat-id");
+          renderChats();
+          renderActiveChat();
+        });
+      });
+    }
+
+    function renderActiveChat() {
+      const chat = state.chats.find((entry) => entry.id === state.activeChatId) || null;
+      $("chat-title").textContent = chat ? chat.title : "Select a chat";
+      $("chat-members").textContent = chat ? chat.members.map((id) => state.agents.find((agent) => agent.id === id)?.name || id).join(", ") : "";
+      $("messages").innerHTML = chat ? chat.messages.map((message) => `
+        <div class="message">
+          <small>${escapeHtml(message.author)} | ${escapeHtml(formatTime(message.createdAt))}</small>
+          <div>${escapeHtml(message.content)}</div>
+        </div>
+      `).join("") : `<div class="sub">No chat selected.</div>`;
+    }
+
+    function renderWatch() {
+      const activity = state.board?.activity || [];
+      const failures = state.board?.failures || [];
+      const tasks = state.board?.tasks || [];
+      $("activity-list").innerHTML = activity.map((entry) => `
+        <div class="row">
+          <div class="row-head">
+            <strong>${escapeHtml(entry.title)}</strong>
+            <div class="sub">${escapeHtml(entry.status)}</div>
+          </div>
+          <div class="sub">${escapeHtml(entry.agentName || entry.source || "")}</div>
+          <div class="sub">${escapeHtml(entry.detail || "")}</div>
+        </div>
+      `).join("") || `<div class="sub">No activity.</div>`;
+      $("failures-list").innerHTML = failures.map((entry) => `
+        <div class="row">
+          <strong>${escapeHtml(entry.message)}</strong>
+          <div class="sub">${escapeHtml(entry.detail || "")}</div>
+        </div>
+      `).join("") || `<div class="sub">No failures.</div>`;
+      $("tasks-list").innerHTML = tasks.map((entry) => `
+        <div class="row">
+          <div class="row-head">
+            <strong>${escapeHtml(entry.title)}</strong>
+            <div class="sub">${escapeHtml(entry.status)}</div>
+          </div>
+          <div class="sub">${escapeHtml(entry.detail || "")}</div>
+        </div>
+      `).join("") || `<div class="sub">No tasks.</div>`;
+    }
+
+    function renderFileList() {
+      $("files-list").innerHTML = state.fileItems.map((item) => `
+        <div class="row ${state.selectedFile === item.path ? "active" : ""}" data-file-path="${escapeHtml(item.path)}">
+          <strong>${escapeHtml(item.path)}</strong>
+        </div>
+      `).join("") || `<div class="sub">No files found in project workspace.</div>`;
+      [...document.querySelectorAll("[data-file-path]")].forEach((node) => {
+        node.addEventListener("click", () => {
+          state.selectedFile = node.getAttribute("data-file-path");
+          renderFileList();
+        });
+      });
+    }
+
+    function renderNoteList() {
+      $("notes-list").innerHTML = state.noteItems.map((item) => `
+        <div class="row ${state.selectedNote === item.path ? "active" : ""}" data-note-path="${escapeHtml(item.path)}">
+          <strong>${escapeHtml(item.path)}</strong>
+        </div>
+      `).join("") || `<div class="sub">No notes found.</div>`;
+      [...document.querySelectorAll("[data-note-path]")].forEach((node) => {
+        node.addEventListener("click", () => {
+          state.selectedNote = node.getAttribute("data-note-path");
+          renderNoteList();
+        });
+      });
+    }
+
+    function setTab(name) {
+      state.activeTab = name;
+      document.querySelectorAll(".tab").forEach((node) => node.classList.toggle("active", node.dataset.tab === name));
+      document.querySelectorAll(".tab-panel").forEach((node) => node.classList.toggle("hidden", node.id !== `tab-${name}`));
+    }
+
+    async function refreshSystem() {
+      state.system = await window.kiraDesktop.getSystemStatus();
+      const system = state.system;
+      $("backend-status").textContent = system.probes.backend.detail;
+      $("backend-status").className = `kpi status ${system.probes.backend.ok ? "ok" : "bad"}`;
+      $("ollama-status").textContent = system.probes.ollama.detail;
+      $("ollama-status").className = `kpi status ${system.probes.ollama.ok ? "ok" : "bad"}`;
+      $("openclaw-status").textContent = system.probes.openclaw.detail;
+      $("openclaw-status").className = `kpi status ${system.probes.openclaw.ok ? "ok" : "bad"}`;
+    }
+
+    async function refreshBoard() {
+      state.board = await api("/api/dashboard");
+      const team = await api("/api/team/agents");
+      state.agents = team.agents || [];
+      state.chats = state.board?.messenger?.chats || [];
+      state.activeChatId = state.activeChatId || state.board?.messenger?.activeChatId || state.chats[0]?.id || null;
+      renderAgents();
+      renderChats();
+      renderActiveChat();
+      renderWatch();
+      const heartbeat = await api("/api/team-heartbeat/status");
+      $("loop-status").textContent = heartbeat.lastDetail || "Autonomy loop is idle.";
+    }
+
+    async function refreshIndexes() {
+      try {
+        const files = await api("/api/workspace/files/index");
+        state.fileItems = files.items || [];
+      } catch (error) {
+        state.fileItems = [];
+        $("file-viewer").textContent = String(error.message || error);
+      }
+      try {
+        const notes = await api("/api/workspace/notes/index");
+        state.noteItems = notes.items || [];
+      } catch (error) {
+        state.noteItems = [];
+        $("note-viewer").textContent = String(error.message || error);
+      }
+      renderFileList();
+      renderNoteList();
+    }
+
+    async function openWorkspaceFile(relativePath, targetId) {
+      if (!relativePath) return;
+      const data = await api(`/api/workspace/read?path=${encodeURIComponent(relativePath)}`);
+      $(targetId).textContent = data.content || "";
+    }
+
+    async function deleteWorkspaceFiles(paths) {
+      if (!paths.length) return;
+      await api("/api/workspace/delete", "POST", { paths });
+      await refreshIndexes();
+    }
+
+    async function sendMessage() {
+      const input = $("message-input");
+      const content = input.value.trim();
+      const chat = state.chats.find((entry) => entry.id === state.activeChatId);
+      if (!content || !chat) return;
+      const next = structuredClone(state.board.messenger);
+      const target = next.chats.find((entry) => entry.id === chat.id);
+      target.messages.push({
+        id: `msg-${Date.now()}`,
+        role: "user",
+        author: "You",
+        content,
+        createdAt: Date.now()
+      });
+      next.activeChatId = chat.id;
+      await api("/api/messenger", "POST", next);
+      input.value = "";
+      const assistantMessages = [];
+      if (chat.type === "group") {
+        for (const agentId of chat.members) {
+          const result = await api("/api/team/chat", "POST", {
+            agentId,
+            prompt: content,
+            mode: "messenger"
+          }).catch(() => null);
+          if (result?.content?.trim()) {
+            assistantMessages.push({
+              id: `msg-${Date.now()}-${agentId}`,
+              role: "assistant",
+              author: result.agent?.name || state.agents.find((agent) => agent.id === agentId)?.name || agentId,
+              content: result.content.trim(),
+              createdAt: Date.now()
+            });
+          }
+        }
+      } else if (chat.members[0]) {
+        const result = await api("/api/team/chat", "POST", {
+          agentId: chat.members[0],
+          prompt: content,
+          mode: "messenger"
+        }).catch(() => null);
+        if (result?.content?.trim()) {
+          assistantMessages.push({
+            id: `msg-${Date.now()}-${chat.members[0]}`,
+            role: "assistant",
+            author: result.agent?.name || state.agents.find((agent) => agent.id === chat.members[0])?.name || chat.members[0],
+            content: result.content.trim(),
+            createdAt: Date.now()
+          });
+        }
+      }
+      if (assistantMessages.length) {
+        const latest = await api("/api/messenger");
+        const target = latest.chats.find((entry) => entry.id === chat.id);
+        if (target) {
+          target.messages.push(...assistantMessages);
+          latest.activeChatId = chat.id;
+          await api("/api/messenger", "POST", latest);
+        }
+      }
+      await refreshBoard();
+    }
+
+    async function createGroupChat() {
+      const name = prompt("Group name");
+      if (!name) return;
+      const current = structuredClone(state.board.messenger);
+      current.chats.push({
+        id: `group-${Date.now()}`,
+        type: "group",
+        title: name,
+        members: state.agents.map((agent) => agent.id),
+        messages: [{
+          id: `msg-${Date.now()}`,
+          role: "system",
+          author: "KIRA",
+          content: `${name} created.`,
+          createdAt: Date.now()
+        }],
+        lastReadAt: 0,
+        origin: "user"
+      });
+      current.activeChatId = current.chats[current.chats.length - 1].id;
+      await api("/api/messenger", "POST", current);
+      await refreshBoard();
+      setTab("chat");
+    }
+
+    async function verifyDeploy() {
+      const response = await api("/api/deploy/verify", "POST", {
+        cwd: $("project-path-input").value.trim(),
+        buildCommand: $("build-command-input").value.trim(),
+        deployCommand: $("deploy-command-input").value.trim()
+      });
+      $("build-command-input").value = response.buildCommand || $("build-command-input").value;
+      $("deploy-command-input").value = response.deployCommand || $("deploy-command-input").value;
+      $("deploy-output").textContent = JSON.stringify(response, null, 2);
+    }
+
+    async function runDeploy(kind) {
+      const command = kind === "build" ? $("build-command-input").value.trim() : $("deploy-command-input").value.trim();
+      if (!command) return;
+      const response = await api("/api/deploy/run", "POST", {
+        cwd: $("project-path-input").value.trim(),
+        command,
+        kind
+      });
+      $("deploy-output").textContent = `${response.command}\n\n${response.stdout || ""}${response.stderr || ""}`.trim();
+    }
+
+    async function saveSettings() {
+      await window.kiraDesktop.saveDesktopSettings({
+        websiteProjectPath: $("project-path-input").value.trim(),
+        deployProjectPath: $("project-path-input").value.trim(),
+        deployBuildCommand: $("build-command-input").value.trim(),
+        deployCommand: $("deploy-command-input").value.trim()
+      });
+      $("project-path-inline").textContent = $("project-path-input").value.trim();
+      await window.kiraDesktop.restartAgent();
+      setBanner("Settings saved.");
+      setTimeout(() => {
+        refreshSystem().catch(() => null);
+        refreshBoard().catch(() => null);
+        refreshIndexes().catch(() => null);
+      }, 1200);
+    }
+
+    async function init() {
+      state.bootstrap = await window.kiraDesktop.getBootstrap();
+      $("project-path-input").value = state.bootstrap.websiteProjectPath || "C:\\parks\\web\\newpark";
+      $("build-command-input").value = state.bootstrap.deployProfile?.buildCommand || "";
+      $("deploy-command-input").value = state.bootstrap.deployProfile?.deployCommand || "";
+      $("project-path-inline").textContent = $("project-path-input").value;
+      $("agent-log").textContent = state.bootstrap.agentLog || "";
+      window.kiraDesktop.onAgentLog((value) => {
+        $("agent-log").textContent = value;
+      });
+
+      document.querySelectorAll(".tab").forEach((node) => node.addEventListener("click", () => setTab(node.dataset.tab)));
+      $("open-workspace-btn").addEventListener("click", () => window.kiraDesktop.openWorkspace());
+      $("open-codium-btn").addEventListener("click", () => window.kiraDesktop.openVscodium());
+      $("restart-agent-btn").addEventListener("click", async () => {
+        await window.kiraDesktop.restartAgent();
+        setBanner("Backend restarted.");
+        setTimeout(refreshSystem, 1200);
+      });
+      $("browse-project-btn").addEventListener("click", async () => {
+        const folder = await window.kiraDesktop.browseFolder();
+        if (folder) {
+          $("project-path-input").value = folder;
+          $("project-path-inline").textContent = folder;
+        }
+      });
+      $("save-settings-btn").addEventListener("click", saveSettings);
+      $("probe-btn").addEventListener("click", refreshSystem);
+      $("start-loop-btn").addEventListener("click", async () => {
+        await api("/api/team-heartbeat/start", "POST", { intervalMs: 60000, maxAgentsPerCycle: 8 });
+        await refreshBoard();
+      });
+      $("stop-loop-btn").addEventListener("click", async () => {
+        await api("/api/team-heartbeat/stop", "POST", {});
+        await refreshBoard();
+      });
+      $("send-message-btn").addEventListener("click", sendMessage);
+      $("refresh-chat-btn").addEventListener("click", refreshBoard);
+      $("new-group-btn").addEventListener("click", createGroupChat);
+      $("verify-deploy-btn").addEventListener("click", verifyDeploy);
+      $("run-build-btn").addEventListener("click", () => runDeploy("build"));
+      $("run-deploy-btn").addEventListener("click", () => runDeploy("deploy"));
+      $("clear-activity-btn").addEventListener("click", async () => {
+        await api("/api/dashboard/activity/clear", "POST", {});
+        await refreshBoard();
+      });
+      $("clear-failures-btn").addEventListener("click", async () => {
+        await api("/api/dashboard/failures/clear", "POST", {});
+        await refreshBoard();
+      });
+      $("refresh-files-btn").addEventListener("click", refreshIndexes);
+      $("refresh-notes-btn").addEventListener("click", refreshIndexes);
+      $("open-file-btn").addEventListener("click", () => openWorkspaceFile(state.selectedFile, "file-viewer"));
+      $("open-note-btn").addEventListener("click", () => openWorkspaceFile(state.selectedNote, "note-viewer"));
+      $("delete-file-btn").addEventListener("click", () => deleteWorkspaceFiles(state.selectedFile ? [state.selectedFile] : []));
+      $("delete-note-btn").addEventListener("click", () => deleteWorkspaceFiles(state.selectedNote ? [state.selectedNote] : []));
+
+      await refreshSystem();
+      await refreshBoard();
+      await refreshIndexes();
+      setInterval(() => {
+        refreshBoard().catch(() => null);
+      }, 7000);
+    }
+
+    init().catch((error) => {
+      setBanner(String(error.message || error));
+    });
+  </script>
+</body>
+</html>

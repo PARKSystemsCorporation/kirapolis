@@ -1,0 +1,16 @@
+{
+  "name": "kiradex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KiraDex control plane for local website teams. Agents build only in C:\\parks\\web\\newpark.",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "extensions/*"
+  ],
+  "scripts": {
+    "start": "electron apps/desktop/dist/main.js",
+    "start:agent": "node services/agent/dist/server.js",
+    "clean": "node scripts/clean.mjs"
+  }
+}

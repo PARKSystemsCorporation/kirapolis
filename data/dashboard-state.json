@@ -1,0 +1,37 @@
+{
+  "projectBrief": "",
+  "tasks": [],
+  "assets": [],
+  "failures": [],
+  "activity": [],
+  "messenger": {
+    "chats": [
+      {
+        "id": "group-core-team",
+        "type": "group",
+        "title": "Core Team",
+        "members": [
+          "agent-manager",
+          "agent-frontend",
+          "agent-backend",
+          "agent-researcher",
+          "agent-environment"
+        ],
+        "messages": [
+          {
+            "id": "msg-core-team-seed",
+            "role": "system",
+            "author": "KiraDex",
+            "content": "Core Team is ready. Use this room to brief the default team and let the autonomy loop work from shared context.",
+            "createdAt": 1774575894606
+          }
+        ],
+        "lastReadAt": 0,
+        "origin": "system"
+      }
+    ],
+    "activeChatId": "group-core-team",
+    "groupBuilderOpen": false,
+    "dismissedChatIds": []
+  }
+}

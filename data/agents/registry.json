@@ -1,0 +1,163 @@
+{
+  "agents": [
+    {
+      "id": "agent-manager",
+      "name": "Project Manager",
+      "role": "executive",
+      "lotId": "world",
+      "posX": 120,
+      "posY": 120,
+      "provider": "openclaw",
+      "model": "deepseek-v2.5",
+      "tools": [
+        "planning",
+        "web",
+        "workspace-read"
+      ],
+      "skills": [
+        "project-planning",
+        "client-communication",
+        "qa-testing"
+      ],
+      "notes": "Project manager for website direction, task breakdown, and final review.",
+      "lastBrief": "",
+      "lastResponse": "",
+      "state": "idle",
+      "presence": "idle",
+      "workspacePath": "C:\\parks\\web\\newpark",
+      "repoBranch": "",
+      "memoryPath": "C:\\kiradex\\data\\agents\\agent-manager\\memory.db",
+      "isManager": true,
+      "createdAt": 1774580000001,
+      "updatedAt": 1774580000001
+    },
+    {
+      "id": "agent-frontend",
+      "name": "Frontend Builder",
+      "role": "coder",
+      "lotId": "world",
+      "posX": 340,
+      "posY": 120,
+      "provider": "openclaw",
+      "model": "deepseek-coder-v2",
+      "tools": [
+        "workspace-read",
+        "workspace-write",
+        "exec"
+      ],
+      "skills": [
+        "frontend-build",
+        "ui-styling",
+        "debugging",
+        "component-design"
+      ],
+      "notes": "Builds pages, components, styling, responsive UI, and frontend fixes.",
+      "lastBrief": "",
+      "lastResponse": "",
+      "state": "idle",
+      "presence": "idle",
+      "workspacePath": "C:\\parks\\web\\newpark",
+      "repoBranch": "",
+      "memoryPath": "C:\\kiradex\\data\\agents\\agent-frontend\\memory.db",
+      "isManager": false,
+      "createdAt": 1774580000002,
+      "updatedAt": 1774580000002
+    },
+    {
+      "id": "agent-backend",
+      "name": "Backend Builder",
+      "role": "coder",
+      "lotId": "world",
+      "posX": 560,
+      "posY": 120,
+      "provider": "openclaw",
+      "model": "deepseek-coder-v2",
+      "tools": [
+        "workspace-read",
+        "workspace-write",
+        "exec"
+      ],
+      "skills": [
+        "form-wiring",
+        "debugging",
+        "qa-testing",
+        "frontend-build"
+      ],
+      "notes": "Builds APIs, form handling, integrations, validation, and backend logic.",
+      "lastBrief": "",
+      "lastResponse": "",
+      "state": "idle",
+      "presence": "idle",
+      "workspacePath": "C:\\parks\\web\\newpark",
+      "repoBranch": "",
+      "memoryPath": "C:\\kiradex\\data\\agents\\agent-backend\\memory.db",
+      "isManager": false,
+      "createdAt": 1774580000003,
+      "updatedAt": 1774580000003
+    },
+    {
+      "id": "agent-researcher",
+      "name": "Code Researcher",
+      "role": "executive",
+      "lotId": "world",
+      "posX": 780,
+      "posY": 120,
+      "provider": "openclaw",
+      "model": "deepseek-v2.5",
+      "tools": [
+        "workspace-read",
+        "web",
+        "planning"
+      ],
+      "skills": [
+        "research",
+        "library-scouting",
+        "project-planning",
+        "client-communication"
+      ],
+      "notes": "Scouts implementation options, docs, code patterns, references, and technical risks before build work.",
+      "lastBrief": "",
+      "lastResponse": "",
+      "state": "idle",
+      "presence": "idle",
+      "workspacePath": "C:\\parks\\web\\newpark",
+      "repoBranch": "",
+      "memoryPath": "C:\\kiradex\\data\\agents\\agent-researcher\\memory.db",
+      "isManager": false,
+      "createdAt": 1774580000004,
+      "updatedAt": 1774580000004
+    },
+    {
+      "id": "agent-environment",
+      "name": "Environment Artist",
+      "role": "coder",
+      "lotId": "world",
+      "posX": 1000,
+      "posY": 120,
+      "provider": "openclaw",
+      "model": "deepseek-coder-v2",
+      "tools": [
+        "workspace-read",
+        "workspace-write",
+        "planning"
+      ],
+      "skills": [
+        "environment-design",
+        "worldbuilding",
+        "prop-dressing",
+        "ui-styling"
+      ],
+      "notes": "Owns worldbuilding, environmental mood, props, references, and visual cohesion for expandable scenes.",
+      "lastBrief": "",
+      "lastResponse": "",
+      "state": "idle",
+      "presence": "idle",
+      "workspacePath": "C:\\parks\\web\\newpark",
+      "repoBranch": "",
+      "memoryPath": "C:\\kiradex\\data\\agents\\agent-environment\\memory.db",
+      "isManager": false,
+      "createdAt": 1774580000005,
+      "updatedAt": 1774580000005
+    }
+  ]
+}
