@@ -250,11 +250,6 @@ export class TeamRegistry {
         if (!agent) {
             throw new Error("agent not found");
         }
-        for (const entry of this.agents) {
-            if (entry.id !== agent.id && entry.state === "active") {
-                entry.state = "idle";
-            }
-        }
         agent.lastBrief = brief;
         agent.lastResponse = response;
         agent.state = "active";
