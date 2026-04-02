@@ -1,7 +1,10 @@
 // @ts-nocheck
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 export function getConfig() {
-    const controlRoot = path.resolve(process.env.KIRA_CONTROL_ROOT || path.resolve(process.cwd(), "..", ".."));
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const inferredRepoRoot = path.resolve(moduleDir, "..", "..", "..");
+    const controlRoot = path.resolve(process.env.KIRA_CONTROL_ROOT || inferredRepoRoot);
     const projectRoot = path.resolve(process.env.KIRA_PROJECT_ROOT || controlRoot);
     const publicBaseUrl = String(process.env.KIRA_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
     return {
