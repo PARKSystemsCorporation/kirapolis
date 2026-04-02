@@ -33,11 +33,14 @@
       selectedNote: "",
       fileContent: "",
       noteContent: "",
+      fileDirty: false,
+      noteDirty: false,
       filesDir: "",
       notesDir: "",
       filesMode: "list",
       notesMode: "list",
     },
+    workspaceMenu: null,
     motion: {
       agents: {},
       rafId: 0,
@@ -739,6 +742,30 @@
     state.workspace.selectedFile = value;
   }
 
+  function getWorkspaceContent(kind) {
+    return kind === "notes" ? state.workspace.noteContent : state.workspace.fileContent;
+  }
+
+  function setWorkspaceContent(kind, value) {
+    if (kind === "notes") {
+      state.workspace.noteContent = value;
+      return;
+    }
+    state.workspace.fileContent = value;
+  }
+
+  function isWorkspaceDirty(kind) {
+    return kind === "notes" ? Boolean(state.workspace.noteDirty) : Boolean(state.workspace.fileDirty);
+  }
+
+  function setWorkspaceDirty(kind, value) {
+    if (kind === "notes") {
+      state.workspace.noteDirty = Boolean(value);
+      return;
+    }
+    state.workspace.fileDirty = Boolean(value);
+  }
+
   function formatWorkspaceDirLabel(kind) {
     const currentDir = getWorkspaceDir(kind);
     if (!currentDir) {
@@ -795,16 +822,96 @@
   }
 
   async function openWorkspaceEntry(kind, relativePath) {
-    const response = await fetch(`/api/workspace/read?path=${encodeURIComponent(relativePath)}`);
-    const data = await response.json();
+    const data = await requestJson(`/api/workspace/read?path=${encodeURIComponent(relativePath)}`);
     setWorkspaceSelectedPath(kind, relativePath);
     setWorkspaceMode(kind, "detail");
-    if (kind === "notes") {
-      state.workspace.noteContent = data.content || "No note content.";
-    } else {
-      state.workspace.fileContent = data.content || "No file content.";
-    }
+    setWorkspaceContent(kind, data.content || "");
+    setWorkspaceDirty(kind, false);
     renderWorkspaceLists();
+  }
+
+  function updateWorkspaceDetailStatus(kind) {
+    const statusNode = $(`office-${kind}-status`);
+    const saveButton = $(`office-${kind}-save`);
+    if (statusNode) {
+      statusNode.textContent = isWorkspaceDirty(kind) ? "Unsaved changes" : "Saved";
+    }
+    if (saveButton) {
+      saveButton.classList.toggle("is-dirty", isWorkspaceDirty(kind));
+      saveButton.textContent = isWorkspaceDirty(kind) ? "Save Changes" : "Saved";
+    }
+  }
+
+  async function mountWorkspaceEditor(kind) {
+    const host = $(`office-${kind}-editor-host`);
+    const selectedPath = getWorkspaceSelectedPath(kind);
+    if (!host || !selectedPath) {
+      return;
+    }
+    if (!window.kiraWorkspaceEditor?.setContent) {
+      host.textContent = getWorkspaceContent(kind) || "";
+      return;
+    }
+    const surface = await window.kiraWorkspaceEditor.setContent(host, {
+      path: selectedPath,
+      value: getWorkspaceContent(kind) || "",
+      readOnly: false,
+      onChange(nextValue) {
+        setWorkspaceContent(kind, nextValue);
+        setWorkspaceDirty(kind, true);
+        updateWorkspaceDetailStatus(kind);
+      },
+    });
+    if (surface?.monaco && surface?.addCommand && !host.dataset.monacoBound) {
+      host.dataset.monacoBound = "1";
+      surface.addCommand(surface.monaco.KeyMod.CtrlCmd | surface.monaco.KeyCode.KeyS, () => {
+        saveWorkspaceEntry(kind).catch(() => null);
+      });
+    }
+    updateWorkspaceDetailStatus(kind);
+  }
+
+  async function saveWorkspaceEntry(kind) {
+    const targetPath = getWorkspaceSelectedPath(kind);
+    if (!targetPath) {
+      return;
+    }
+    await requestJson("/api/workspace/write", "POST", {
+      path: targetPath,
+      content: getWorkspaceContent(kind) || "",
+    });
+    setWorkspaceDirty(kind, false);
+    updateWorkspaceDetailStatus(kind);
+    await refreshWorkspaceIndexes();
+    renderWorkspaceLists();
+    setBanner(`${targetPath.split("/").pop() || targetPath} saved.`);
+  }
+
+  async function deleteWorkspaceEntry(kind, targetPath = getWorkspaceSelectedPath(kind)) {
+    if (!targetPath) {
+      return;
+    }
+    const label = targetPath.split("/").pop() || targetPath;
+    if (!window.confirm(`Delete ${label}?`)) {
+      return;
+    }
+    await requestJson("/api/workspace/delete", "POST", {
+      paths: [targetPath],
+    });
+    const currentDir = getWorkspaceDir(kind);
+    if (normalizeWorkspacePath(targetPath) === normalizeWorkspacePath(getWorkspaceSelectedPath(kind))) {
+      setWorkspaceSelectedPath(kind, "");
+      setWorkspaceMode(kind, "list");
+      setWorkspaceContent(kind, "");
+      setWorkspaceDirty(kind, false);
+    }
+    if (currentDir && normalizeWorkspacePath(targetPath).startsWith(`${currentDir}/`) === false && normalizeWorkspacePath(targetPath) === currentDir) {
+      setWorkspaceDir(kind, "");
+    }
+    hideWorkspaceMenu();
+    await refreshWorkspaceIndexes();
+    renderWorkspaceLists();
+    setBanner(`${label} deleted.`);
   }
 
   function goBackWorkspace(kind) {
@@ -844,23 +951,35 @@
           <div class="drawer-detail">
             <div class="drawer-detail-toolbar">
               <div>
-                <div class="panel-label">${kind === "notes" ? "Note Viewer" : "File Viewer"}</div>
+                <div class="panel-label">${kind === "notes" ? "Note Editor" : "Document Editor"}</div>
                 <strong class="drawer-detail-title">${escapeHtml(selectedPath.split("/").pop() || selectedPath)}</strong>
                 <div class="drawer-detail-path">${escapeHtml(selectedPath)}</div>
+                <div id="office-${kind}-status" class="drawer-detail-status">Saved</div>
+              </div>
+              <div class="drawer-detail-actions">
+                <button id="office-${kind}-save" type="button" class="nav-chip nav-button">Saved</button>
+                <button id="office-${kind}-delete" type="button" class="nav-chip nav-button">Delete</button>
               </div>
             </div>
-            <pre id="office-${kind === "notes" ? "note" : "file"}-viewer" class="drawer-viewer">${escapeHtml(
-              kind === "notes" ? state.workspace.noteContent || "No note content." : state.workspace.fileContent || "No file content."
-            )}</pre>
+            <div id="office-${kind}-editor-host" class="drawer-viewer"></div>
           </div>
         `;
+        $(`office-${kind}-save`)?.addEventListener("click", () => {
+          saveWorkspaceEntry(kind).catch((error) => setBanner(String(error?.message || error || "Save failed.")));
+        });
+        $(`office-${kind}-delete`)?.addEventListener("click", () => {
+          deleteWorkspaceEntry(kind).catch((error) => setBanner(String(error?.message || error || "Delete failed.")));
+        });
+        void mountWorkspaceEditor(kind).catch((error) => {
+          window.kiraWorkspaceEditor?.renderMessage?.($(`office-${kind}-editor-host`), String(error?.message || error || "Unable to load editor."));
+        });
         return;
       }
       const entries = getWorkspaceExplorerEntries(kind);
       target.innerHTML = entries.length ? entries.map((entry) => {
         if (entry.type === "folder") {
           return `
-            <button type="button" class="drawer-entry drawer-folder" data-workspace-kind="${kind}" data-workspace-dir="${escapeHtml(entry.path)}">
+            <button type="button" class="drawer-entry drawer-folder" data-workspace-entry="folder" data-workspace-kind="${kind}" data-workspace-dir="${escapeHtml(entry.path)}">
               <div class="drawer-entry-meta">
                 <strong>${escapeHtml(entry.name)}</strong>
                 <span>${escapeHtml(String(entry.count || 0))} items</span>
@@ -870,7 +989,7 @@
           `;
         }
         return `
-          <button type="button" class="drawer-entry drawer-file-open ${selectedPath === entry.path ? "active" : ""}" data-workspace-kind="${kind}" data-workspace-path="${escapeHtml(entry.path)}">
+          <button type="button" class="drawer-entry drawer-file-open ${selectedPath === entry.path ? "active" : ""}" data-workspace-entry="file" data-workspace-kind="${kind}" data-workspace-path="${escapeHtml(entry.path)}">
             <div class="drawer-entry-meta">
               <strong>${escapeHtml(entry.name)}</strong>
               <span>${escapeHtml(entry.path)}</span>
@@ -879,24 +998,36 @@
           </button>
         `;
       }).join("") : `<div class="drawer-empty">No ${kind} found in this folder yet.</div>`;
-    });
-    document.querySelectorAll("[data-workspace-path]").forEach((node) => {
-      node.addEventListener("click", async () => {
-        const kind = node.getAttribute("data-workspace-kind");
-        const targetPath = node.getAttribute("data-workspace-path");
-        if (!kind || !targetPath) return;
-        await openWorkspaceEntry(kind, targetPath);
-        setDrawerView(kind);
-      });
-    });
-    document.querySelectorAll("[data-workspace-dir]").forEach((node) => {
-      node.addEventListener("click", () => {
-        const kind = node.getAttribute("data-workspace-kind");
-        const targetDir = node.getAttribute("data-workspace-dir");
-        if (!kind || targetDir == null) return;
-        setWorkspaceDir(kind, targetDir);
-        renderWorkspaceLists();
-        setDrawerView(kind);
+      target.querySelectorAll("[data-workspace-entry]").forEach((node) => {
+        node.addEventListener("click", async () => {
+          const entryType = node.getAttribute("data-workspace-entry");
+          const nodeKind = node.getAttribute("data-workspace-kind");
+          if (!nodeKind) return;
+          if (entryType === "folder") {
+            const targetDir = node.getAttribute("data-workspace-dir");
+            if (targetDir == null) return;
+            setWorkspaceDir(nodeKind, targetDir);
+            renderWorkspaceLists();
+            setDrawerView(nodeKind);
+            return;
+          }
+          const targetPath = node.getAttribute("data-workspace-path");
+          if (!targetPath) return;
+          await openWorkspaceEntry(nodeKind, targetPath);
+          setDrawerView(nodeKind);
+        });
+        node.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          const entryType = node.getAttribute("data-workspace-entry");
+          const nodeKind = node.getAttribute("data-workspace-kind");
+          if (!nodeKind) return;
+          openWorkspaceMenu({
+            kind: nodeKind,
+            type: entryType,
+            path: node.getAttribute("data-workspace-path") || "",
+            dir: node.getAttribute("data-workspace-dir") || "",
+          }, event.clientX, event.clientY);
+        });
       });
     });
   }
@@ -1660,9 +1791,49 @@
     menu.classList.remove("hidden");
   }
 
+  function openWorkspaceMenu(payload, x, y) {
+    state.workspaceMenu = payload;
+    const menu = $("workspace-context-menu");
+    if (!menu) {
+      return;
+    }
+    $("workspace-menu-open").disabled = !payload?.kind;
+    $("workspace-menu-delete").disabled = payload?.type === "folder" || !payload?.path;
+    menu.style.left = `${Math.min(Math.max(8, x), window.innerWidth - 190)}px`;
+    menu.style.top = `${Math.min(Math.max(8, y), window.innerHeight - 120)}px`;
+    menu.classList.remove("hidden");
+  }
+
   function hideMenu() {
     $("office-menu").classList.add("hidden");
     state.menuAgentId = null;
+  }
+
+  function hideWorkspaceMenu() {
+    $("workspace-context-menu")?.classList.add("hidden");
+    state.workspaceMenu = null;
+  }
+
+  async function runWorkspaceMenuAction(action) {
+    const payload = state.workspaceMenu;
+    if (!payload?.kind) {
+      return;
+    }
+    if (action === "open") {
+      if (payload.type === "folder") {
+        setWorkspaceDir(payload.kind, payload.dir || "");
+        renderWorkspaceLists();
+        setDrawerView(payload.kind);
+      } else if (payload.path) {
+        await openWorkspaceEntry(payload.kind, payload.path);
+        setDrawerView(payload.kind);
+      }
+      hideWorkspaceMenu();
+      return;
+    }
+    if (action === "delete" && payload.path && payload.type !== "folder") {
+      await deleteWorkspaceEntry(payload.kind, payload.path);
+    }
   }
 
   function initDrawerResize() {
@@ -1809,13 +1980,26 @@
     });
     $("menu-promote-star-2").addEventListener("click", () => promoteAgent(2));
     $("menu-promote-star-3").addEventListener("click", () => promoteAgent(3));
+    $("workspace-menu-open")?.addEventListener("click", () => {
+      runWorkspaceMenuAction("open").catch((error) => setBanner(String(error?.message || error || "Unable to open item.")));
+    });
+    $("workspace-menu-delete")?.addEventListener("click", () => {
+      runWorkspaceMenuAction("delete").catch((error) => setBanner(String(error?.message || error || "Unable to delete item.")));
+    });
     document.addEventListener("click", (event) => {
       if (!event.target.closest(".context-menu")) {
         hideMenu();
+        hideWorkspaceMenu();
       }
     });
-    window.addEventListener("blur", hideMenu);
-    window.addEventListener("resize", hideMenu);
+    window.addEventListener("blur", () => {
+      hideMenu();
+      hideWorkspaceMenu();
+    });
+    window.addEventListener("resize", () => {
+      hideMenu();
+      hideWorkspaceMenu();
+    });
   }
 
   initDrawerResize();

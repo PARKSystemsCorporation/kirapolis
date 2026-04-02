@@ -2682,6 +2682,8 @@ class TeamHeartbeat {
 }
 app.use(express.json({ limit: "4mb" }));
 app.use("/experience/project", express.static(config.projectRoot, { index: false, extensions: ["html"] }));
+app.use("/experience/shared", express.static(path.join(config.controlRoot, "apps", "desktop", "src", "shared"), { extensions: ["js", "html"] }));
+app.use("/vendor/monaco", express.static(path.join(config.controlRoot, "node_modules", "monaco-editor", "min")));
 function renderProjectExperienceFallback() {
     return `<!doctype html>
 <html lang="en">
@@ -4570,8 +4572,11 @@ app.post("/api/workspace/write", async (req, res) => {
     if (!parsed.success) {
         return res.status(400).json({ error: "invalid request" });
     }
-    const absolutePath = path.resolve(config.projectRoot, parsed.data.path);
-    const relativeToRoot = path.relative(config.projectRoot, absolutePath);
+    const usingControlPrefix = parsed.data.path.startsWith("__control__/");
+    const baseRoot = usingControlPrefix ? config.controlRoot : config.projectRoot;
+    const strippedPath = usingControlPrefix ? parsed.data.path.slice("__control__/".length) : parsed.data.path;
+    const absolutePath = path.resolve(baseRoot, strippedPath);
+    const relativeToRoot = path.relative(baseRoot, absolutePath);
     if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
         return res.status(400).json({ error: "path outside workspace" });
     }
