@@ -5,8 +5,65 @@
   "failures": [],
   "activity": [],
   "messenger": {
-    "chats": [],
-    "activeChatId": null,
+    "chats": [
+      {
+        "id": "group-post-deploy",
+        "type": "group",
+        "title": "Post Deploy",
+        "members": [
+          "agent-ceo",
+          "agent-manager",
+          "agent-qa",
+          "agent-github",
+          "agent-postdeploy-monitor",
+          "agent-visual-analyst"
+        ],
+        "messages": [
+          {
+            "id": "group-post-deploy-seed",
+            "role": "system",
+            "author": "Kirapolis",
+            "content": "Post Deploy is ready. Railway events, runtime failures, and visual release checks will be routed here for fast triage.",
+            "createdAt": 1775173293023
+          }
+        ],
+        "lastReadAt": 0,
+        "origin": "system"
+      },
+      {
+        "id": "group-core-team",
+        "type": "group",
+        "title": "Closed Loop",
+        "members": [
+          "agent-ceo",
+          "agent-manager",
+          "agent-researcher",
+          "agent-frontend",
+          "agent-backend",
+          "agent-threejs",
+          "agent-babylon",
+          "agent-environment",
+          "agent-image",
+          "agent-github",
+          "agent-maintenance",
+          "agent-qa",
+          "agent-postdeploy-monitor",
+          "agent-visual-analyst"
+        ],
+        "messages": [
+          {
+            "id": "msg-core-team-seed",
+            "role": "system",
+            "author": "Kirapolis",
+            "content": "Closed Loop is ready. Every agent contributes to the evolving workspace through shared rooms, files, artifacts, and review cycles.",
+            "createdAt": 1775173293022
+          }
+        ],
+        "lastReadAt": 0,
+        "origin": "system"
+      }
+    ],
+    "activeChatId": "group-core-team",
     "groupBuilderOpen": false,
     "dismissedChatIds": []
   }

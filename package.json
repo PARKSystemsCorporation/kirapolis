@@ -28,5 +28,16 @@
     "test:e2e:ui": "node scripts/e2e-kirapolis-ui.mjs",
     "test:memory": "npm run build --workspace @kirapolis/agent && node scripts/test-memory-system.mjs",
     "test:memory-api": "npm run build --workspace @kirapolis/agent && node scripts/test-memory-api.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.0",
+    "express": "^5.2.1",
+    "sql.js": "^1.14.1",
+    "uuid": "^13.0.0",
+    "wink-pos-tagger": "^2.2.2"
   }
 }

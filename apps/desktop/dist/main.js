@@ -1,3 +1,4 @@
+"use strict";
 // @ts-nocheck
 const electron = require("electron");
 const node_child_process_1 = require("node:child_process");
