@@ -25,6 +25,7 @@
     "personas:create": "node scripts/create-kira-persona.mjs",
     "agents:create": "node scripts/create-kira-agent.mjs",
     "clean": "node scripts/clean.mjs",
-    "test:e2e:ui": "node scripts/e2e-kirapolis-ui.mjs"
+    "test:e2e:ui": "node scripts/e2e-kirapolis-ui.mjs",
+    "test:memory": "npm run build --workspace @kirapolis/agent && node scripts/test-memory-system.mjs"
   }
 }

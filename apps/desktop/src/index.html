@@ -2719,6 +2719,12 @@
       experienceSignals: null,
       launchReadiness: null,
       agentGitStatus: null,
+      agentMemory: {
+        agentId: null,
+        items: [],
+        stats: null,
+        scopeType: "all"
+      },
       modelLab: null,
       modelLabChatHistory: [],
       selectedFiles: [],
@@ -3238,6 +3244,7 @@
       renderPreviewLists();
       renderSurfaceStrip();
       void refreshSelectedAgentGit();
+      void refreshSelectedAgentMemory();
     }
 
     function openImmersiveOffice() {
@@ -3324,6 +3331,124 @@
         };
       }
       renderManagerFocus();
+    }
+
+    async function refreshSelectedAgentMemory() {
+      const agent = getSelectedStudioAgent() || getSelectedAgent();
+      if (!agent?.id) {
+        state.agentMemory = { agentId: null, items: [], stats: null, scopeType: state.agentMemory?.scopeType || "all" };
+        renderPersonaStudio();
+        return;
+      }
+      const scopeType = state.agentMemory?.scopeType || "all";
+      const query = new URLSearchParams({ limit: "18" });
+      if (scopeType !== "all") {
+        query.set("scopeType", scopeType);
+        query.set("scopeId", scopeType === "agent" ? agent.id : scopeType === "project" ? "global" : "");
+        if (scopeType === "room") query.delete("scopeId");
+      }
+      try {
+        const result = await api(`/api/team/agents/${encodeURIComponent(agent.id)}/memory?${query.toString()}`);
+        state.agentMemory = {
+          agentId: agent.id,
+          items: result.memory || [],
+          stats: result.stats || null,
+          scopeType
+        };
+      } catch (error) {
+        state.agentMemory = {
+          agentId: agent.id,
+          items: [],
+          stats: null,
+          scopeType,
+          error: String(error.message || error)
+        };
+      }
+      renderPersonaStudio();
+    }
+
+    async function applyMemoryPatch(memoryId, patch) {
+      const agent = getSelectedStudioAgent();
+      if (!agent?.id || !memoryId) return;
+      await api(`/api/team/agents/${encodeURIComponent(agent.id)}/memory/${encodeURIComponent(memoryId)}`, "PATCH", patch);
+      await refreshSelectedAgentMemory();
+      setBanner("Memory updated.");
+    }
+
+    async function forgetMemoryItem(memoryId) {
+      const agent = getSelectedStudioAgent();
+      if (!agent?.id || !memoryId) return;
+      await api(`/api/team/agents/${encodeURIComponent(agent.id)}/memory/${encodeURIComponent(memoryId)}`, "DELETE");
+      await refreshSelectedAgentMemory();
+      setBanner("Memory archived.");
+    }
+
+    async function consolidateSelectedAgentMemory() {
+      const agent = getSelectedStudioAgent();
+      if (!agent?.id) return;
+      await api(`/api/team/agents/${encodeURIComponent(agent.id)}/memory/consolidate`, "POST", {
+        scopeType: "agent",
+        scopeId: agent.id
+      });
+      await refreshSelectedAgentMemory();
+      setBanner("Memory consolidated.");
+    }
+
+    async function createManualEpisode() {
+      const agent = getSelectedStudioAgent();
+      if (!agent?.id) return;
+      const outcome = String(prompt("Episode outcome to store for this agent:", agent.lastResponse || "") || "").trim();
+      if (!outcome) return;
+      await api(`/api/team/agents/${encodeURIComponent(agent.id)}/memory/episodes`, "POST", {
+        title: `${agent.name} manual episode`,
+        action: compactText(agent.lastBrief || "Manual entry", 120),
+        outcome,
+        nextStep: "Review during the next handoff.",
+        scopeType: "agent",
+        scopeId: agent.id
+      });
+      await refreshSelectedAgentMemory();
+      setBanner("Episode saved.");
+    }
+
+    function renderMemoryInspectorCard(agent) {
+      const memoryState = state.agentMemory || {};
+      const stats = memoryState.stats || null;
+      const items = Array.isArray(memoryState.items) ? memoryState.items : [];
+      if (!agent) {
+        return `<div class="label">Memory Path</div><div class="sub">Create or select an agent to see its dedicated memory file.</div>`;
+      }
+      const scopeType = memoryState.scopeType || "all";
+      const scopeButtons = ["all", "agent", "project", "room"].map((scope) => `
+        <button type="button" class="${scopeType === scope ? "secondary" : ""}" data-memory-scope="${escapeHtml(scope)}">${escapeHtml(scope)}</button>
+      `).join("");
+      const statLine = stats ? `
+        <div class="sub">Structured ${Number(stats.structured || 0)} | Episodes ${Number(stats.episodes || 0)} | Conflicts ${Number(stats.conflicts || 0)} | Summaries ${Number(stats.summaries || 0)}</div>
+      ` : `<div class="sub">${escapeHtml(memoryState.error || "Loading memory state...")}</div>`;
+      const itemsMarkup = items.length ? items.map((item) => `
+        <div class="detail-card">
+          <div class="row-head">
+            <strong>${escapeHtml(item.summary || item.subject || item.kind || "Memory")}</strong>
+            <div class="pill">${escapeHtml(item.kind || "memory")}</div>
+          </div>
+          <div class="sub">${escapeHtml(compactText(item.detail || item.subject || "", 180))}</div>
+          <div class="sub">${escapeHtml(`${item.scope_type || "agent"}:${item.scope_id || "default"} | ${item.status || "active"} | confidence ${Number(item.confidence || 0).toFixed(2)}`)}</div>
+          <div class="toolbar">
+            <button type="button" data-memory-pin="${escapeHtml(item.id)}">${Number(item.pinned || 0) ? "Unpin" : "Pin"}</button>
+            <button type="button" data-memory-status="${escapeHtml(item.id)}" data-next-status="${escapeHtml(item.status === "active" ? "candidate" : "active")}">${item.status === "active" ? "Candidate" : "Activate"}</button>
+            <button type="button" data-memory-forget="${escapeHtml(item.id)}">Forget</button>
+          </div>
+          ${(item.links || []).length ? `<div class="sub">Links: ${escapeHtml((item.links || []).map((link) => `${link.relation}:${(link.from_id === item.id ? link.to_id : link.from_id)}`).join(" | "))}</div>` : ""}
+        </div>
+      `).join("") : `<div class="empty">No matching memory items for this scope yet.</div>`;
+      return `
+        <div class="label">Memory Path</div>
+        <div class="sub mono">${escapeHtml(agent.memoryPath || "Pending initialization")}</div>
+        <div class="sub">This memory stays separate even if multiple agents share the same persona.</div>
+        ${statLine}
+        <div class="toolbar">${scopeButtons}<button type="button" id="studio-memory-consolidate-btn">Consolidate</button><button type="button" id="studio-memory-episode-btn">Save Episode</button></div>
+        <div class="detail-list">${itemsMarkup}</div>
+      `;
     }
 
     function resetDirectorView() {
@@ -3647,11 +3772,39 @@
       $("studio-agent-notes-input").value = agent?.notes || "";
       $("studio-agent-manager-input").checked = Boolean(agent?.isManager);
       $("studio-agent-use-persona-model-input").checked = Boolean(agent?.usePersonaModel ?? true);
-      $("studio-agent-memory").innerHTML = agent ? `
-        <div class="label">Memory Path</div>
-        <div class="sub mono">${escapeHtml(agent.memoryPath || "Pending initialization")}</div>
-        <div class="sub">This memory stays separate even if multiple agents share the same persona.</div>
-      ` : `<div class="label">Memory Path</div><div class="sub">Create or select an agent to see its dedicated memory file.</div>`;
+      $("studio-agent-memory").innerHTML = renderMemoryInspectorCard(agent);
+      [...document.querySelectorAll("[data-memory-scope]")].forEach((node) => {
+        node.addEventListener("click", () => {
+          state.agentMemory.scopeType = node.getAttribute("data-memory-scope") || "all";
+          void refreshSelectedAgentMemory();
+        });
+      });
+      [...document.querySelectorAll("[data-memory-pin]")].forEach((node) => {
+        node.addEventListener("click", () => {
+          const id = node.getAttribute("data-memory-pin");
+          const item = (state.agentMemory?.items || []).find((entry) => entry.id === id);
+          void applyMemoryPatch(id, { pinned: !Boolean(Number(item?.pinned || 0)) });
+        });
+      });
+      [...document.querySelectorAll("[data-memory-status]")].forEach((node) => {
+        node.addEventListener("click", () => {
+          const id = node.getAttribute("data-memory-status");
+          const nextStatus = node.getAttribute("data-next-status");
+          void applyMemoryPatch(id, { status: nextStatus });
+        });
+      });
+      [...document.querySelectorAll("[data-memory-forget]")].forEach((node) => {
+        node.addEventListener("click", () => {
+          const id = node.getAttribute("data-memory-forget");
+          void forgetMemoryItem(id);
+        });
+      });
+      $("studio-memory-consolidate-btn")?.addEventListener("click", () => {
+        void consolidateSelectedAgentMemory();
+      });
+      $("studio-memory-episode-btn")?.addEventListener("click", () => {
+        void createManualEpisode();
+      });
     }
 
     async function refreshPersonas() {
@@ -4168,6 +4321,7 @@
       renderWatch();
       renderPersonaStudio();
       void refreshSelectedAgentGit();
+      void refreshSelectedAgentMemory();
       const heartbeat = state.autonomyStatus || {};
       const activeCount = Array.isArray(heartbeat.agents) ? heartbeat.agents.filter((agent) => agent.running).length : 0;
       const waitingCount = Array.isArray(heartbeat.agents) ? heartbeat.agents.filter((agent) => !agent.running && !agent.lastError).length : 0;

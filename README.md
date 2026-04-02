@@ -81,11 +81,20 @@ Important keys:
 Kirapolis includes a layered local memory system for agents:
 
 - Message history and correlation memory stored in SQLite per agent
-- Structured memory items for decisions, tasks, preferences, facts, and summaries
+- Structured memory items for decisions, tasks, preferences, facts, summaries, and explicit episodes
 - Reinforcement and decay to keep short-, medium-, and long-term traces moving over time
 - Semantic retrieval using provider embeddings when available, with a deterministic local fallback
+- Scope-aware recall across agent-private, project-wide, and room-scoped memories
+- Conflict tracking so superseded facts and decisions can be inspected instead of silently piling up
+- Consolidation tools and a desktop inspector for pinning, archiving, and reviewing memory items
 
 Each agent keeps its own memory database under `data/agents/<agent-id>/memory.db`.
+
+### Memory Test
+
+```bash
+npm run test:memory
+```
 
 ## Notes
 

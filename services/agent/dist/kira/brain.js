@@ -18,6 +18,7 @@ const POS = {
     RB: "adv", RBR: "adv", RBS: "adv"
 };
 const MEMORY_KIND_PRIORITY = ["decision", "task", "preference", "fact", "summary"];
+const ACTIVE_MEMORY_STATUSES = new Set(["active", "pinned", "candidate"]);
 function clip(text, max = 220) {
     const value = String(text || "").replace(/\s+/g, " ").trim();
     if (!value)
@@ -33,6 +34,9 @@ function normalizeKey(value) {
 }
 function stablePk(kind, subject) {
     return `${kind}:${normalizeKey(subject)}`;
+}
+function scopePk(scopeType, scopeId) {
+    return `${String(scopeType || "agent")}:${normalizeKey(scopeId || "global")}`;
 }
 function compactSentenceParts(text) {
     return String(text || "")
@@ -75,11 +79,26 @@ export class KiraBrain {
         this.run(`CREATE TABLE IF NOT EXISTS short (id TEXT PRIMARY KEY, pk TEXT UNIQUE, w1 TEXT, w2 TEXT, pos1 TEXT, pos2 TEXT, rel TEXT, snippet TEXT, score REAL, reinf INTEGER, decay_at INTEGER, last_seen INTEGER, created INTEGER, updated INTEGER)`);
         this.run(`CREATE TABLE IF NOT EXISTS medium (id TEXT PRIMARY KEY, pk TEXT UNIQUE, w1 TEXT, w2 TEXT, pos1 TEXT, pos2 TEXT, rel TEXT, snippet TEXT, score REAL, reinf INTEGER, decay_at INTEGER, last_seen INTEGER, created INTEGER, updated INTEGER)`);
         this.run(`CREATE TABLE IF NOT EXISTS long_term (id TEXT PRIMARY KEY, pk TEXT UNIQUE, w1 TEXT, w2 TEXT, pos1 TEXT, pos2 TEXT, rel TEXT, snippet TEXT, score REAL, reinf INTEGER, decay_at INTEGER, last_seen INTEGER, created INTEGER, updated INTEGER)`);
-        this.run(`CREATE TABLE IF NOT EXISTS memory_items (id TEXT PRIMARY KEY, pk TEXT UNIQUE, kind TEXT, subject TEXT, summary TEXT, detail TEXT, tags TEXT, embedding TEXT, source_role TEXT, confidence REAL, salience REAL, accesses INTEGER, created_at INTEGER, updated_at INTEGER, last_used_at INTEGER)`);
+        this.run(`CREATE TABLE IF NOT EXISTS memory_items (id TEXT PRIMARY KEY, pk TEXT UNIQUE, kind TEXT, subject TEXT, summary TEXT, detail TEXT, tags TEXT, embedding TEXT, scope_type TEXT, scope_id TEXT, status TEXT, pinned INTEGER, source_role TEXT, confidence REAL, salience REAL, accesses INTEGER, created_at INTEGER, updated_at INTEGER, last_used_at INTEGER)`);
+        this.run(`CREATE TABLE IF NOT EXISTS memory_links (id TEXT PRIMARY KEY, from_id TEXT, to_id TEXT, relation TEXT, detail TEXT, created_at INTEGER)`);
+        this.run(`CREATE TABLE IF NOT EXISTS memory_meta (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER)`);
         try {
             this.run(`ALTER TABLE memory_items ADD COLUMN embedding TEXT`);
         }
         catch {
+        }
+        for (const statement of [
+            `ALTER TABLE memory_items ADD COLUMN scope_type TEXT`,
+            `ALTER TABLE memory_items ADD COLUMN scope_id TEXT`,
+            `ALTER TABLE memory_items ADD COLUMN status TEXT`,
+            `ALTER TABLE memory_items ADD COLUMN pinned INTEGER`,
+            `ALTER TABLE memory_items ADD COLUMN source_role TEXT`
+        ]) {
+            try {
+                this.run(statement);
+            }
+            catch {
+            }
         }
         this.run(`CREATE INDEX IF NOT EXISTS idx_short_pk ON short(pk)`);
         this.run(`CREATE INDEX IF NOT EXISTS idx_medium_pk ON medium(pk)`);
@@ -89,6 +108,8 @@ export class KiraBrain {
         this.run(`CREATE INDEX IF NOT EXISTS idx_long_words ON long_term(w1, w2)`);
         this.run(`CREATE INDEX IF NOT EXISTS idx_memory_items_kind ON memory_items(kind)`);
         this.run(`CREATE INDEX IF NOT EXISTS idx_memory_items_updated ON memory_items(updated_at)`);
+        this.run(`CREATE INDEX IF NOT EXISTS idx_memory_items_scope ON memory_items(scope_type, scope_id)`);
+        this.run(`CREATE INDEX IF NOT EXISTS idx_memory_links_from ON memory_links(from_id)`);
         this.save();
     }
     async handleUserMessage(text, metadata = {}) {
@@ -108,6 +129,10 @@ export class KiraBrain {
             short: Number(this.get(`SELECT COUNT(*) AS c FROM short`)?.c || 0),
             medium: Number(this.get(`SELECT COUNT(*) AS c FROM medium`)?.c || 0),
             long: Number(this.get(`SELECT COUNT(*) AS c FROM long_term`)?.c || 0),
+            structured: Number(this.get(`SELECT COUNT(*) AS c FROM memory_items`)?.c || 0),
+            episodes: Number(this.get(`SELECT COUNT(*) AS c FROM memory_items WHERE kind = 'episode'`)?.c || 0),
+            conflicts: Number(this.get(`SELECT COUNT(*) AS c FROM memory_links WHERE relation IN ('contradicts', 'supersedes')`)?.c || 0),
+            summaries: Number(this.get(`SELECT COUNT(*) AS c FROM memory_items WHERE kind = 'summary'`)?.c || 0),
             messages: Number(this.get(`SELECT val AS c FROM counter WHERE id = 1`)?.c || 0)
         };
     }
@@ -163,8 +188,12 @@ export class KiraBrain {
     async rankStructuredMemories(text) {
         const tokens = new Set(this.tokenize(text).map((token) => token.word));
         const queryEmbedding = await embedText(this.config, text);
-        const rows = this.query(`SELECT * FROM memory_items ORDER BY updated_at DESC LIMIT 120`);
+        const rows = this.query(`SELECT * FROM memory_items ORDER BY pinned DESC, updated_at DESC LIMIT 160`);
         const ranked = rows.map((row) => {
+            const status = String(row.status || "active");
+            if (!ACTIVE_MEMORY_STATUSES.has(status)) {
+                return { ...row, _score: -1, _overlap: 0, _semantic: 0 };
+            }
             const haystack = normalizeKey([row.subject, row.summary, row.detail, row.tags].filter(Boolean).join(" "));
             const overlap = Number([...tokens].reduce((count, token) => Number(count) + (haystack.includes(String(token)) ? 1 : 0), 0));
             const semantic = Math.max(0, cosineSimilarity(queryEmbedding, parseEmbedding(row.embedding)));
@@ -173,10 +202,11 @@ export class KiraBrain {
             const accesses = Math.min(0.25, Number(row.accesses || 0) * 0.02);
             const ageMs = Math.max(0, Date.now() - Number(row.updated_at || row.created_at || Date.now()));
             const recency = Math.max(0, 1 - (ageMs / (1000 * 60 * 60 * 24 * 45)));
-            const scoreValue = overlap * 0.35 + semantic * 0.35 + confidence * 0.12 + salience * 0.12 + recency * 0.1 + accesses;
+            const pinnedBoost = Number(row.pinned || 0) ? 0.3 : 0;
+            const scoreValue = overlap * 0.32 + semantic * 0.33 + confidence * 0.12 + salience * 0.12 + recency * 0.08 + accesses + pinnedBoost;
             return { ...row, _score: scoreValue, _overlap: overlap, _semantic: semantic };
         })
-            .filter((row) => row._overlap > 0 || Number(row._semantic || 0) >= 0.2 || Number(row.salience || 0) >= 0.8)
+            .filter((row) => Number(row._score || 0) >= 0 && (row._overlap > 0 || Number(row._semantic || 0) >= 0.2 || Number(row.salience || 0) >= 0.8 || Number(row.pinned || 0) > 0))
             .sort((left, right) => Number(right._score || 0) - Number(left._score || 0));
         for (const row of ranked.slice(0, 8)) {
             this.run(`UPDATE memory_items SET accesses = COALESCE(accesses, 0) + 1, last_used_at = ? WHERE id = ?`, [Date.now(), row.id]);
@@ -188,10 +218,11 @@ export class KiraBrain {
         const detail = clip(row.detail || "", 160);
         const confidence = Number(row.confidence || 0.5).toFixed(2);
         const semantic = Number(row._semantic || 0).toFixed(2);
+        const scopeLabel = row.scope_type ? `${row.scope_type}${row.scope_id ? `:${row.scope_id}` : ""}` : "";
         if (!detail || detail === summary) {
-            return `${summary} [confidence ${confidence}, semantic ${semantic}]`;
+            return `${summary}${scopeLabel ? ` <${scopeLabel}>` : ""} [confidence ${confidence}, semantic ${semantic}]`;
         }
-        return `${summary} (${detail}) [confidence ${confidence}, semantic ${semantic}]`;
+        return `${summary} (${detail})${scopeLabel ? ` <${scopeLabel}>` : ""} [confidence ${confidence}, semantic ${semantic}]`;
     }
     processMessage(text) {
         const idx = this.nextIdx();
@@ -274,6 +305,8 @@ export class KiraBrain {
         const meta = (metadata || {});
         const mode = String(meta.mode || "");
         const agentName = String(meta.agentName || "");
+        const scopeType = String(meta.scopeType || "agent");
+        const scopeId = String(meta.scopeId || meta.agentId || agentName || "default");
         const taskTitles = Array.isArray(meta.taskTitles) ? meta.taskTitles.map((task) => clip(task, 140)).filter(Boolean) : [];
         const promptSummary = clip(meta.prompt || meta.userPrompt || "", 180);
         const responseSummary = clip(text, 200);
@@ -285,6 +318,8 @@ export class KiraBrain {
                     summary: `Assigned work: ${title}`,
                     detail: clip(`Mode ${mode || "dispatch"}${agentName ? ` for ${agentName}` : ""}${promptSummary ? `. Brief: ${promptSummary}` : ""}`, 200),
                     tags: ["task", mode, agentName].filter(Boolean),
+                    scopeType,
+                    scopeId,
                     confidence: 0.78,
                     salience: 0.92
                 });
@@ -297,6 +332,8 @@ export class KiraBrain {
                 summary: `Latest response summary: ${responseSummary}`,
                 detail: clip(`Input brief: ${promptSummary}`, 200),
                 tags: ["summary", mode, agentName].filter(Boolean),
+                scopeType,
+                scopeId,
                 confidence: 0.62,
                 salience: 0.56
             });
@@ -312,6 +349,8 @@ export class KiraBrain {
                     summary: clip(sentence, 180),
                     detail: role === "user" ? "User-stated preference or constraint." : "Assistant-stated operating preference or constraint.",
                     tags: ["preference", role, mode].filter(Boolean),
+                    scopeType,
+                    scopeId,
                     confidence: role === "user" ? 0.94 : 0.7,
                     salience: role === "user" ? 0.95 : 0.66
                 });
@@ -323,6 +362,8 @@ export class KiraBrain {
                     summary: clip(sentence, 180),
                     detail: mode ? `Captured during ${mode}.` : "Captured from conversation.",
                     tags: ["decision", role, mode].filter(Boolean),
+                    scopeType,
+                    scopeId,
                     confidence: 0.74,
                     salience: 0.88
                 });
@@ -334,6 +375,8 @@ export class KiraBrain {
                     summary: clip(sentence, 180),
                     detail: mode ? `Possible actionable work from ${mode}.` : "Possible actionable work from conversation.",
                     tags: ["task", role, mode].filter(Boolean),
+                    scopeType,
+                    scopeId,
                     confidence: 0.68,
                     salience: 0.8
                 });
@@ -345,48 +388,328 @@ export class KiraBrain {
                     summary: clip(sentence, 180),
                     detail: "Potential project or environment fact.",
                     tags: ["fact", role, mode].filter(Boolean),
+                    scopeType,
+                    scopeId,
                     confidence: 0.6,
                     salience: 0.58
                 });
             }
         }
         for (const memory of memories.slice(0, 14)) {
-            const pk = stablePk(memory.kind, memory.subject);
-            const embedding = serializeEmbedding(await embedText(this.config, [memory.subject, memory.summary, memory.detail].filter(Boolean).join(" ")));
-            const existing = this.get(`SELECT * FROM memory_items WHERE pk = ?`, [pk]);
-            if (existing) {
-                this.run(`UPDATE memory_items SET summary = ?, detail = ?, tags = ?, embedding = ?, source_role = ?, confidence = ?, salience = ?, updated_at = ?, last_used_at = ? WHERE pk = ?`, [
-                    memory.summary,
-                    memory.detail,
-                    JSON.stringify(memory.tags || []),
-                    embedding,
-                    role,
-                    Math.max(Number(existing.confidence || 0), Number(memory.confidence || 0.5)),
-                    Math.max(Number(existing.salience || 0), Number(memory.salience || 0.5)),
+            await this.storeMemoryItem({
+                kind: memory.kind,
+                subject: memory.subject,
+                summary: memory.summary,
+                detail: memory.detail,
+                tags: memory.tags,
+                scopeType: memory.scopeType || scopeType,
+                scopeId: memory.scopeId || scopeId,
+                sourceRole: role,
+                confidence: memory.confidence,
+                salience: memory.salience
+            });
+        }
+    }
+    setMeta(key, value) {
+        this.run(`INSERT OR REPLACE INTO memory_meta VALUES(?,?,?)`, [String(key || ""), JSON.stringify(value), Date.now()]);
+    }
+    getMeta(key, fallback = null) {
+        const row = this.get(`SELECT value FROM memory_meta WHERE key = ?`, [String(key || "")]);
+        if (!row?.value) {
+            return fallback;
+        }
+        try {
+            return JSON.parse(String(row.value));
+        }
+        catch {
+            return fallback;
+        }
+    }
+    async storeMemoryItem(input = {}) {
+        const now = Date.now();
+        const kind = String(input.kind || "summary");
+        const subject = clip(input.subject || input.summary || "", 180);
+        if (!subject) {
+            return null;
+        }
+        const scopeType = String(input.scopeType || "agent");
+        const scopeId = String(input.scopeId || "default");
+        const pk = `${stablePk(kind, subject)}:${scopePk(scopeType, scopeId)}`;
+        const summary = clip(input.summary || subject, 220);
+        const detail = clip(input.detail || "", 220);
+        const tags = JSON.stringify(Array.isArray(input.tags) ? input.tags.map((item) => String(item || "")).filter(Boolean) : []);
+        const embedding = serializeEmbedding(await embedText(this.config, [subject, summary, detail].filter(Boolean).join(" ")));
+        const status = String(input.status || "active");
+        const pinned = input.pinned ? 1 : 0;
+        const existing = this.get(`SELECT * FROM memory_items WHERE pk = ?`, [pk]);
+        if (existing) {
+            const changed = normalizeKey(`${existing.summary || ""} ${existing.detail || ""}`) !== normalizeKey(`${summary} ${detail}`);
+            let historicalId = null;
+            if (changed) {
+                historicalId = uuidv4();
+                this.run(`INSERT OR REPLACE INTO memory_items VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+                    historicalId,
+                    `${pk}:revision:${now}`,
+                    String(existing.kind || kind),
+                    clip(existing.subject || subject, 180),
+                    clip(existing.summary || summary, 220),
+                    clip(existing.detail || detail, 220),
+                    String(existing.tags || "[]"),
+                    String(existing.embedding || embedding),
+                    String(existing.scope_type || scopeType),
+                    String(existing.scope_id || scopeId),
+                    "superseded",
+                    Number(existing.pinned || 0),
+                    String(existing.source_role || input.sourceRole || "system"),
+                    Number(existing.confidence || input.confidence || 0.5),
+                    Number(existing.salience || input.salience || 0.5),
+                    Number(existing.accesses || 0),
+                    Number(existing.created_at || now),
                     now,
-                    Number(existing.last_used_at || 0),
-                    pk
+                    Number(existing.last_used_at || 0)
                 ]);
+            }
+            this.run(`UPDATE memory_items SET summary = ?, detail = ?, tags = ?, embedding = ?, scope_type = ?, scope_id = ?, status = ?, pinned = ?, source_role = ?, confidence = ?, salience = ?, updated_at = ? WHERE pk = ?`, [
+                summary,
+                detail,
+                tags,
+                embedding,
+                scopeType,
+                scopeId,
+                status,
+                pinned || Number(existing.pinned || 0),
+                String(input.sourceRole || existing.source_role || "system"),
+                Math.max(Number(existing.confidence || 0), Number(input.confidence || 0.5)),
+                Math.max(Number(existing.salience || 0), Number(input.salience || 0.5)),
+                now,
+                pk
+            ]);
+            if (changed && ["fact", "decision", "task", "preference"].includes(kind)) {
+                if (historicalId) {
+                    this.run(`INSERT INTO memory_links VALUES(?,?,?,?,?,?)`, [
+                        uuidv4(),
+                        existing.id,
+                        historicalId,
+                        "supersedes",
+                        "New revision superseded the previous memory snapshot.",
+                        now
+                    ]);
+                    this.run(`INSERT INTO memory_links VALUES(?,?,?,?,?,?)`, [
+                        uuidv4(),
+                        existing.id,
+                        historicalId,
+                        "contradicts",
+                        "Updated content differs from the previous active version.",
+                        now
+                    ]);
+                }
+                await this.linkPotentialConflicts(existing.id, {
+                    kind,
+                    scopeType,
+                    scopeId,
+                    subject,
+                    summary,
+                    detail
+                });
+            }
+            return this.get(`SELECT * FROM memory_items WHERE pk = ?`, [pk]);
+        }
+        const id = uuidv4();
+        this.run(`INSERT OR REPLACE INTO memory_items VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+            id,
+            pk,
+            kind,
+            subject,
+            summary,
+            detail,
+            tags,
+            embedding,
+            scopeType,
+            scopeId,
+            status,
+            pinned,
+            String(input.sourceRole || "system"),
+            Number(input.confidence || 0.5),
+            Number(input.salience || 0.5),
+            0,
+            now,
+            now,
+            0
+        ]);
+        if (["fact", "decision", "task", "preference"].includes(kind)) {
+            await this.linkPotentialConflicts(id, {
+                kind,
+                scopeType,
+                scopeId,
+                subject,
+                summary,
+                detail
+            });
+        }
+        return this.get(`SELECT * FROM memory_items WHERE id = ?`, [id]);
+    }
+    async linkPotentialConflicts(id, input = {}) {
+        const peers = this.query(`SELECT * FROM memory_items WHERE id != ? AND kind = ? AND scope_type = ? AND scope_id = ? AND status IN ('active','pinned','candidate') ORDER BY updated_at DESC LIMIT 20`, [
+            id,
+            String(input.kind || "summary"),
+            String(input.scopeType || "agent"),
+            String(input.scopeId || "default")
+        ]);
+        const currentText = normalizeKey(`${input.subject || ""} ${input.summary || ""} ${input.detail || ""}`);
+        for (const peer of peers) {
+            const peerText = normalizeKey(`${peer.subject || ""} ${peer.summary || ""} ${peer.detail || ""}`);
+            const sameSubject = normalizeKey(peer.subject || "") === normalizeKey(input.subject || "");
+            if (!sameSubject) {
                 continue;
             }
-            this.run(`INSERT OR REPLACE INTO memory_items VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+            if (peerText && currentText && peerText !== currentText) {
+                this.run(`INSERT INTO memory_links VALUES(?,?,?,?,?,?)`, [
+                    uuidv4(),
+                    id,
+                    peer.id,
+                    "contradicts",
+                    "Same scoped subject carries different wording or content.",
+                    Date.now()
+                ]);
+                this.run(`UPDATE memory_items SET status = ? WHERE id = ? AND status != 'pinned'`, ["superseded", peer.id]);
+                this.run(`INSERT INTO memory_links VALUES(?,?,?,?,?,?)`, [
+                    uuidv4(),
+                    id,
+                    peer.id,
+                    "supersedes",
+                    "Newer scoped memory replaced an older active version.",
+                    Date.now()
+                ]);
+            }
+        }
+    }
+    async recordEpisode(input = {}) {
+        const title = clip(input.title || input.action || "Episode", 180);
+        const action = clip(input.action || "", 180);
+        const outcome = clip(input.outcome || "", 180);
+        const nextStep = clip(input.nextStep || "", 180);
+        const detail = [action ? `Action: ${action}` : "", outcome ? `Outcome: ${outcome}` : "", nextStep ? `Next: ${nextStep}` : ""].filter(Boolean).join(" | ");
+        return await this.storeMemoryItem({
+            kind: "episode",
+            subject: title,
+            summary: `${title}${outcome ? ` -> ${outcome}` : ""}`,
+            detail,
+            tags: ["episode", input.source || "", input.mode || ""].filter(Boolean),
+            scopeType: input.scopeType || "agent",
+            scopeId: input.scopeId || "default",
+            sourceRole: input.sourceRole || "system",
+            confidence: 0.83,
+            salience: 0.9
+        });
+    }
+    listMemoryItems(options = {}) {
+        const limit = Math.max(1, Math.min(80, Number(options.limit || 24)));
+        const includeArchived = Boolean(options.includeArchived);
+        const conditions = [];
+        const params = [];
+        if (options.scopeType) {
+            conditions.push(`scope_type = ?`);
+            params.push(String(options.scopeType));
+        }
+        if (options.scopeId) {
+            conditions.push(`scope_id = ?`);
+            params.push(String(options.scopeId));
+        }
+        if (options.kind) {
+            conditions.push(`kind = ?`);
+            params.push(String(options.kind));
+        }
+        if (!includeArchived) {
+            conditions.push(`status NOT IN ('archived','forgotten','superseded')`);
+        }
+        const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+        const items = this.query(`SELECT * FROM memory_items ${where} ORDER BY pinned DESC, updated_at DESC LIMIT ${limit}`, params);
+        return items.map((item) => ({
+            ...item,
+            tags: (() => { try {
+                return JSON.parse(String(item.tags || "[]"));
+            }
+            catch {
+                return [];
+            } })(),
+            links: this.query(`SELECT * FROM memory_links WHERE from_id = ? OR to_id = ? ORDER BY created_at DESC LIMIT 8`, [item.id, item.id])
+        }));
+    }
+    updateMemoryItem(id, patch = {}) {
+        const existing = this.get(`SELECT * FROM memory_items WHERE id = ?`, [String(id || "")]);
+        if (!existing) {
+            return null;
+        }
+        const next = {
+            summary: clip(patch.summary ?? existing.summary ?? "", 220),
+            detail: clip(patch.detail ?? existing.detail ?? "", 220),
+            status: String(patch.status ?? existing.status ?? "active"),
+            pinned: patch.pinned === undefined ? Number(existing.pinned || 0) : (patch.pinned ? 1 : 0),
+            confidence: Number(patch.confidence ?? existing.confidence ?? 0.5),
+            salience: Number(patch.salience ?? existing.salience ?? 0.5),
+            tags: JSON.stringify(Array.isArray(patch.tags) ? patch.tags : (() => { try {
+                return JSON.parse(String(existing.tags || "[]"));
+            }
+            catch {
+                return [];
+            } })())
+        };
+        this.run(`UPDATE memory_items SET summary = ?, detail = ?, status = ?, pinned = ?, confidence = ?, salience = ?, tags = ?, updated_at = ? WHERE id = ?`, [
+            next.summary,
+            next.detail,
+            next.status,
+            next.pinned,
+            next.confidence,
+            next.salience,
+            next.tags,
+            Date.now(),
+            existing.id
+        ]);
+        if (patch.relatedId && patch.relation) {
+            this.run(`INSERT INTO memory_links VALUES(?,?,?,?,?,?)`, [
                 uuidv4(),
-                pk,
-                memory.kind,
-                clip(memory.subject, 180),
-                clip(memory.summary, 220),
-                clip(memory.detail, 220),
-                JSON.stringify(memory.tags || []),
-                embedding,
-                role,
-                Number(memory.confidence || 0.5),
-                Number(memory.salience || 0.5),
-                0,
-                now,
-                now,
-                0
+                existing.id,
+                String(patch.relatedId),
+                String(patch.relation),
+                clip(patch.linkDetail || "", 180),
+                Date.now()
             ]);
         }
+        return this.get(`SELECT * FROM memory_items WHERE id = ?`, [existing.id]);
+    }
+    forgetMemoryItem(id) {
+        const existing = this.get(`SELECT * FROM memory_items WHERE id = ?`, [String(id || "")]);
+        if (!existing) {
+            return false;
+        }
+        this.run(`UPDATE memory_items SET status = ?, updated_at = ? WHERE id = ?`, ["forgotten", Date.now(), existing.id]);
+        return true;
+    }
+    async consolidateMemories(scopeType = "agent", scopeId = "default") {
+        const messages = this.query(`SELECT role, content, metadata, created_at FROM messages ORDER BY created_at DESC LIMIT 16`).reverse();
+        if (!messages.length) {
+            return null;
+        }
+        const lastConsolidatedAt = Number(this.getMeta(`consolidated:${scopeType}:${scopeId}`, 0) || 0);
+        const fresh = messages.filter((row) => Number(row.created_at || 0) > lastConsolidatedAt);
+        if (!fresh.length) {
+            return null;
+        }
+        const summaries = fresh.slice(-8).map((row) => `${row.role}: ${clip(row.content || "", 140)}`);
+        const summaryItem = await this.storeMemoryItem({
+            kind: "summary",
+            subject: `${scopeType} consolidation ${new Date().toISOString()}`,
+            summary: `Consolidated ${fresh.length} recent messages for ${scopeType}:${scopeId}`,
+            detail: summaries.join(" | "),
+            tags: ["consolidated", scopeType, scopeId],
+            scopeType,
+            scopeId,
+            sourceRole: "system",
+            confidence: 0.72,
+            salience: 0.86
+        });
+        this.setMeta(`consolidated:${scopeType}:${scopeId}`, Date.now());
+        return summaryItem;
     }
     insertMessage(role, content, metadata) {
         this.run(`INSERT INTO messages VALUES(?,?,?,?,?)`, [uuidv4(), role, content, Date.now(), JSON.stringify(metadata)]);

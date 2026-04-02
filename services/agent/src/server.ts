@@ -655,6 +655,42 @@ function buildExperienceSignalsFromSnapshot(snapshot) {
 async function buildExperienceSignals() {
     return buildExperienceSignalsFromSnapshot(await buildOfficeSnapshot());
 }
+function clipText(value, max = 220) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (!text) {
+        return "";
+    }
+    return text.length > max ? `${text.slice(0, Math.max(0, max - 3)).trim()}...` : text;
+}
+async function broadcastScopedMemory(agentIds, payload) {
+    const uniqueIds = Array.from(new Set((agentIds || []).filter(Boolean).map((item) => String(item))));
+    for (const agentId of uniqueIds) {
+        try {
+            const brain = await teamRegistry.getBrain(agentId);
+            await brain.storeMemoryItem(payload);
+        }
+        catch {
+        }
+    }
+}
+async function broadcastRoomMemory(chatId, title, memberIds, message) {
+    const content = clipText(message?.content || "", 220);
+    if (!content) {
+        return;
+    }
+    await broadcastScopedMemory(memberIds, {
+        kind: "summary",
+        subject: `${title} room update`,
+        summary: `${message?.author || "Agent"} in ${title}: ${content}`,
+        detail: `Room ${chatId} update from ${message?.author || "Agent"}.`,
+        tags: ["room", chatId, title, message?.role || "assistant"].filter(Boolean),
+        scopeType: "room",
+        scopeId: chatId,
+        sourceRole: message?.role || "system",
+        confidence: 0.74,
+        salience: 0.84
+    });
+}
 
 async function awardAgentTaskCompletion(agentId, taskId, detail = "") {
     const agent = teamRegistry.get(agentId);
@@ -662,6 +698,29 @@ async function awardAgentTaskCompletion(agentId, taskId, detail = "") {
         return null;
     }
     const result = await progressionStore.awardTaskCompletion(agent, taskId, detail);
+    const agentBrain = await teamRegistry.getBrain(agent.id);
+    await agentBrain.recordEpisode({
+        title: `Completed task ${taskId}`,
+        action: `Finished task for ${agent.name}`,
+        outcome: detail || "Task marked done.",
+        nextStep: "Reuse the strongest tactic and keep the handoff concrete.",
+        scopeType: "agent",
+        scopeId: agent.id,
+        source: "task-completion",
+        sourceRole: "system"
+    });
+    await broadcastScopedMemory(teamRegistry.list().map((entry) => entry.id), {
+        kind: "task",
+        subject: `Project task completion ${taskId}`,
+        summary: `${agent.name} completed ${taskId}`,
+        detail: clipText(detail || "Task completed.", 220),
+        tags: ["task", "project", "completion", agent.id],
+        scopeType: "project",
+        scopeId: "global",
+        sourceRole: "system",
+        confidence: 0.86,
+        salience: 0.9
+    });
     if (result?.awarded) {
         await dashboardStore.addActivity({
             source: "progression",
@@ -1636,6 +1695,7 @@ async function appendChatMessageById(chatId, message) {
         createdAt: Number(message.createdAt || Date.now())
     });
     await dashboardStore.setMessengerState(state.messenger);
+    await broadcastRoomMemory(chat.id, chat.title, chat.members || [], message);
 }
 function deriveSearchTerms(seedText, extras = []) {
     const words = `${seedText}\n${extras.join("\n")}`
@@ -2006,7 +2066,9 @@ async function executeAgentPrompt(agentId, prompt, mode = "dispatch") {
         agentRole: agent.role,
         personaId: agent.personaId || "",
         taskTitles: activeTaskTitles,
-        prompt
+        prompt,
+        scopeType: "agent",
+        scopeId: agent.id
     });
     let updatedAgent = await teamRegistry.recordDispatch(agent.id, prompt, result.content || "");
     if (result.model && updatedAgent.model !== result.model) {
@@ -2017,6 +2079,16 @@ async function executeAgentPrompt(agentId, prompt, mode = "dispatch") {
         updatedAgent = await teamRegistry.recordDispatch(agent.id, prompt, result.content || "");
     }
     await recordAgentActivity(updatedAgent, mode, "done", agentActivityTitles(updatedAgent.name, mode).done, (result.content || "").slice(0, 320));
+    await agentBrain.recordEpisode({
+        title: `${updatedAgent.name} ${mode}`,
+        action: clipText(prompt, 180),
+        outcome: clipText(result.content || "", 180),
+        nextStep: "Carry forward the successful patterns and turn unresolved issues into explicit tasks.",
+        scopeType: "agent",
+        scopeId: updatedAgent.id,
+        source: mode,
+        sourceRole: "system"
+    });
     return {
         result,
         agent: updatedAgent
@@ -3575,7 +3647,21 @@ app.post("/api/dashboard/brief", async (req, res) => {
         return res.status(400).json({ error: "invalid request" });
     }
     try {
-        return res.json(await dashboardStore.setProjectBrief(parsed.data.projectBrief));
+        const next = await dashboardStore.setProjectBrief(parsed.data.projectBrief);
+        await broadcastScopedMemory(teamRegistry.list().map((agent) => agent.id), {
+            kind: "fact",
+            subject: "Shared project brief",
+            summary: clipText(parsed.data.projectBrief, 180) || "Project brief updated.",
+            detail: "Project-wide guidance that should stay available across agents.",
+            tags: ["project-brief", "project"],
+            scopeType: "project",
+            scopeId: "global",
+            sourceRole: "system",
+            confidence: 0.92,
+            salience: 0.96,
+            pinned: true
+        });
+        return res.json(next);
     }
     catch (error) {
         return res.status(500).json({ error: describeError(error) });
@@ -3597,6 +3683,19 @@ app.post("/api/dashboard/tasks", async (req, res) => {
     try {
         const previous = parsed.data.id ? dashboardStore.getState().tasks.find((task) => task.id === parsed.data.id) : null;
         const nextState = await dashboardStore.upsertTask(parsed.data);
+        const targetAgents = parsed.data.agentId ? [parsed.data.agentId] : teamRegistry.list().map((agent) => agent.id);
+        await broadcastScopedMemory(targetAgents, {
+            kind: "task",
+            subject: parsed.data.title,
+            summary: parsed.data.title,
+            detail: clipText(parsed.data.detail || "", 220) || `Task is ${parsed.data.status || "todo"}.`,
+            tags: ["task", parsed.data.status || "todo", parsed.data.agentId || "unassigned"].filter(Boolean),
+            scopeType: parsed.data.agentId ? "agent" : "project",
+            scopeId: parsed.data.agentId || "global",
+            sourceRole: "system",
+            confidence: 0.82,
+            salience: parsed.data.status === "blocked" ? 0.95 : 0.8
+        });
         if (parsed.data.status === "done" && previous?.status !== "done" && parsed.data.agentId) {
             await awardAgentTaskCompletion(parsed.data.agentId, parsed.data.id || "", `${parsed.data.title}\n${parsed.data.detail || ""}`);
         }
@@ -3779,6 +3878,137 @@ app.post("/api/messenger", async (req, res) => {
 });
 app.get("/api/team/agents", (_req, res) => {
     res.json({ agents: listAgentsWithProgression() });
+});
+app.get("/api/team/agents/:agentId/memory", async (req, res) => {
+    const agentId = String(req.params.agentId || "");
+    const agent = teamRegistry.get(agentId);
+    if (!agent) {
+        return res.status(404).json({ error: "agent not found" });
+    }
+    try {
+        const brain = await teamRegistry.getBrain(agent.id);
+        const limit = Number(req.query.limit || 20);
+        const scopeType = req.query.scopeType ? String(req.query.scopeType) : undefined;
+        const scopeId = req.query.scopeId ? String(req.query.scopeId) : undefined;
+        const kind = req.query.kind ? String(req.query.kind) : undefined;
+        const includeArchived = String(req.query.includeArchived || "") === "true";
+        return res.json({
+            ok: true,
+            memory: brain.listMemoryItems({ limit, scopeType, scopeId, kind, includeArchived }),
+            stats: brain.getStats()
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.patch("/api/team/agents/:agentId/memory/:memoryId", async (req, res) => {
+    const agentId = String(req.params.agentId || "");
+    const agent = teamRegistry.get(agentId);
+    if (!agent) {
+        return res.status(404).json({ error: "agent not found" });
+    }
+    const schema = z.object({
+        summary: z.string().optional(),
+        detail: z.string().optional(),
+        status: z.string().optional(),
+        pinned: z.boolean().optional(),
+        confidence: z.number().min(0).max(1).optional(),
+        salience: z.number().min(0).max(1).optional(),
+        tags: z.array(z.string()).optional(),
+        relatedId: z.string().optional(),
+        relation: z.string().optional(),
+        linkDetail: z.string().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const brain = await teamRegistry.getBrain(agent.id);
+        const memory = brain.updateMemoryItem(String(req.params.memoryId || ""), parsed.data);
+        if (!memory) {
+            return res.status(404).json({ error: "memory not found" });
+        }
+        return res.json({ ok: true, memory });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.delete("/api/team/agents/:agentId/memory/:memoryId", async (req, res) => {
+    const agentId = String(req.params.agentId || "");
+    const agent = teamRegistry.get(agentId);
+    if (!agent) {
+        return res.status(404).json({ error: "agent not found" });
+    }
+    try {
+        const brain = await teamRegistry.getBrain(agent.id);
+        const ok = brain.forgetMemoryItem(String(req.params.memoryId || ""));
+        if (!ok) {
+            return res.status(404).json({ error: "memory not found" });
+        }
+        return res.json({ ok: true });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/team/agents/:agentId/memory/consolidate", async (req, res) => {
+    const agentId = String(req.params.agentId || "");
+    const agent = teamRegistry.get(agentId);
+    if (!agent) {
+        return res.status(404).json({ error: "agent not found" });
+    }
+    const schema = z.object({
+        scopeType: z.string().optional(),
+        scopeId: z.string().optional()
+    });
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const brain = await teamRegistry.getBrain(agent.id);
+        const memory = await brain.consolidateMemories(parsed.data.scopeType || "agent", parsed.data.scopeId || agent.id);
+        return res.json({ ok: true, memory, stats: brain.getStats() });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/team/agents/:agentId/memory/episodes", async (req, res) => {
+    const agentId = String(req.params.agentId || "");
+    const agent = teamRegistry.get(agentId);
+    if (!agent) {
+        return res.status(404).json({ error: "agent not found" });
+    }
+    const schema = z.object({
+        title: z.string().min(1),
+        action: z.string().optional(),
+        outcome: z.string().optional(),
+        nextStep: z.string().optional(),
+        scopeType: z.string().optional(),
+        scopeId: z.string().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const brain = await teamRegistry.getBrain(agent.id);
+        const episode = await brain.recordEpisode({
+            ...parsed.data,
+            scopeType: parsed.data.scopeType || "agent",
+            scopeId: parsed.data.scopeId || agent.id,
+            source: "manual-episode",
+            sourceRole: "system"
+        });
+        return res.json({ ok: true, episode, stats: brain.getStats() });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
 });
 app.post("/api/team/agents", async (req, res) => {
     const schema = z.object({
