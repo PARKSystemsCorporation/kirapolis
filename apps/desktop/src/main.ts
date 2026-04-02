@@ -2,25 +2,39 @@
 const electron = require("electron");
 const node_child_process_1 = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, shell } = electron;
 const repoRoot = path.resolve(__dirname, "../../..");
-if (process.env.KIRADEX_USER_DATA_PATH) {
-    app.setPath("userData", path.resolve(process.env.KIRADEX_USER_DATA_PATH));
+if (process.env.KIRAPOLIS_USER_DATA_PATH) {
+    app.setPath("userData", path.resolve(process.env.KIRAPOLIS_USER_DATA_PATH));
 }
 const agentEntry = path.join(repoRoot, "services", "agent", "dist", "server.js");
 const preloadPath = path.join(__dirname, "preload.cjs");
 const htmlPath = path.join(repoRoot, "apps", "desktop", "src", "index.html");
-const controlRoot = path.resolve(process.env.KIRADEX_CONTROL_ROOT || repoRoot);
-const defaultProjectRoot = path.resolve(process.env.KIRADEX_PROJECT_ROOT || "C:\\parks\\web\\newpark");
+const controlRoot = path.resolve(process.env.KIRAPOLIS_CONTROL_ROOT || repoRoot);
+const defaultProjectRoot = path.resolve(process.env.KIRAPOLIS_PROJECT_ROOT || controlRoot);
 const agentUrl = "http://127.0.0.1:4317";
-const desktopSettingsPath = () => path.join(app.getPath("userData"), "desktop-settings.json");
+const sharedDesktopSettingsPath = () => path.join(controlRoot, "data", "desktop-settings.json");
 let mainWindow = null;
 let agentProcess = null;
-let agentLog = "Starting KIRA agent...\n";
+let agentLog = "Starting Kirapolis agent...\n";
+function getRemoteUrls() {
+    const interfaces = os.networkInterfaces();
+    const urls = [];
+    for (const entries of Object.values(interfaces)) {
+        for (const entry of entries || []) {
+            if (!entry || entry.family !== "IPv4" || entry.internal) {
+                continue;
+            }
+            urls.push(`http://${entry.address}:4317/app`);
+        }
+    }
+    return [...new Set(urls)];
+}
 function getLaunchRoot(settings = loadDesktopSettings()) {
     const candidate = String(settings.websiteProjectPath || "").trim();
-    return candidate || defaultProjectRoot;
+    return resolveProjectRoot(candidate || defaultProjectRoot);
 }
 function describeError(error) {
     if (error && typeof error === "object") {
@@ -48,18 +62,42 @@ async function probeJson(url) {
 }
 function loadDesktopSettings() {
     try {
-        if (!fs.existsSync(desktopSettingsPath())) {
-            return {};
+        if (fs.existsSync(sharedDesktopSettingsPath())) {
+            return JSON.parse(fs.readFileSync(sharedDesktopSettingsPath(), "utf8"));
         }
-        return JSON.parse(fs.readFileSync(desktopSettingsPath(), "utf8"));
+        return {};
     }
     catch {
         return {};
     }
 }
+function hasProjectEntrypoint(targetPath) {
+    if (!targetPath) {
+        return false;
+    }
+    try {
+        const resolved = path.resolve(String(targetPath));
+        return ["index.html", "app.js", "styles.css"].some((name) => fs.existsSync(path.join(resolved, name)));
+    }
+    catch {
+        return false;
+    }
+}
+function resolveProjectRoot(candidate) {
+    const trimmed = String(candidate || "").trim();
+    const attempts = trimmed
+        ? [path.resolve(trimmed), path.resolve(trimmed, ".."), path.resolve(trimmed, "..", "..")]
+        : [];
+    for (const attempt of [...attempts, defaultProjectRoot]) {
+        if (hasProjectEntrypoint(attempt)) {
+            return attempt;
+        }
+    }
+    return trimmed ? path.resolve(trimmed) : defaultProjectRoot;
+}
 function saveDesktopSettings(settings) {
-    fs.mkdirSync(path.dirname(desktopSettingsPath()), { recursive: true });
-    fs.writeFileSync(desktopSettingsPath(), JSON.stringify(settings, null, 2), "utf8");
+    fs.mkdirSync(path.dirname(sharedDesktopSettingsPath()), { recursive: true });
+    fs.writeFileSync(sharedDesktopSettingsPath(), JSON.stringify(settings, null, 2), "utf8");
 }
 function getVscodiumCandidates() {
     const localAppData = process.env.LOCALAPPDATA || "";
@@ -88,7 +126,10 @@ function getPathCommandCandidates(command) {
         return [];
     }
     try {
-        const output = (0, node_child_process_1.execFileSync)("where.exe", [command], { encoding: "utf8" });
+        const output = (0, node_child_process_1.execFileSync)("where.exe", [command], {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"]
+        });
         return output
             .split(/\r?\n/)
             .map((line) => line.trim())
@@ -103,7 +144,10 @@ function readRegistryDefault(key) {
         return null;
     }
     try {
-        const output = (0, node_child_process_1.execFileSync)("reg.exe", ["query", key, "/ve"], { encoding: "utf8" });
+        const output = (0, node_child_process_1.execFileSync)("reg.exe", ["query", key, "/ve"], {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"]
+        });
         const match = output.match(/REG_\w+\s+(.+)$/m);
         return match ? match[1].trim() : null;
     }
@@ -194,8 +238,8 @@ function startAgent() {
         env: {
             ...process.env,
             ELECTRON_RUN_AS_NODE: "1",
-            KIRA_CONTROL_ROOT: controlRoot,
-            KIRA_PROJECT_ROOT: getLaunchRoot()
+            KIRAPOLIS_CONTROL_ROOT: controlRoot,
+            KIRAPOLIS_PROJECT_ROOT: getLaunchRoot()
         }
     });
     agentProcess.stdout?.on("data", (chunk) => {
@@ -257,16 +301,18 @@ function createWindow() {
 }
 ipcMain.handle("desktop:get-bootstrap", async () => {
     const desktopSettings = loadDesktopSettings();
+    const launchRoot = getLaunchRoot(desktopSettings);
     return {
         workspaceRoot: controlRoot,
         controlRoot,
-        websiteProjectPath: desktopSettings.websiteProjectPath || "",
+        websiteProjectPath: launchRoot,
         deployProfile: {
-            projectPath: desktopSettings.deployProjectPath || desktopSettings.websiteProjectPath || "",
+            projectPath: resolveProjectRoot(desktopSettings.deployProjectPath || desktopSettings.websiteProjectPath || launchRoot),
             buildCommand: desktopSettings.deployBuildCommand || "",
             deployCommand: desktopSettings.deployCommand || ""
         },
         agentUrl,
+        remoteUrls: getRemoteUrls(),
         agentLog
     };
 });
@@ -304,6 +350,11 @@ ipcMain.handle("desktop:open-workspace", async () => {
     await shell.openPath(getLaunchRoot(desktopSettings));
     return true;
 });
+ipcMain.handle("desktop:open-path", async (_event, targetPath) => {
+    const resolved = path.resolve(String(targetPath || "").trim() || controlRoot);
+    await shell.openPath(resolved);
+    return true;
+});
 ipcMain.handle("desktop:open-url", async (_event, url) => {
     await shell.openExternal(url);
     return true;
@@ -313,6 +364,7 @@ ipcMain.handle("desktop:open-vscodium", async () => {
 });
 ipcMain.handle("desktop:get-system-status", async () => {
     const desktopSettings = loadDesktopSettings();
+    const launchRoot = getLaunchRoot(desktopSettings);
     const targets = getVscodiumLaunchTargets();
     const autoDetected = targets.find((target) => target.source === "path" || fs.existsSync(target.path)) || null;
     const installedPath = (desktopSettings.vscodiumPath && fs.existsSync(desktopSettings.vscodiumPath)
@@ -325,8 +377,9 @@ ipcMain.handle("desktop:get-system-status", async () => {
         agentProcessRunning: Boolean(agentProcess),
         workspaceRoot: controlRoot,
         controlRoot,
-        websiteProjectPath: desktopSettings.websiteProjectPath || "",
+        websiteProjectPath: launchRoot,
         agentUrl,
+        remoteUrls: getRemoteUrls(),
         probes: {
             backend: {
                 ok: agentProbe.ok,
@@ -409,8 +462,8 @@ ipcMain.handle("desktop:save-desktop-settings", async (_event, input) => {
     const next = {
         ...current,
         vscodiumPath: input.vscodiumPath?.trim() || undefined,
-        websiteProjectPath: input.websiteProjectPath?.trim() ? path.resolve(input.websiteProjectPath.trim()) : undefined,
-        deployProjectPath: input.deployProjectPath?.trim() ? path.resolve(input.deployProjectPath.trim()) : undefined,
+        websiteProjectPath: input.websiteProjectPath?.trim() ? resolveProjectRoot(input.websiteProjectPath.trim()) : undefined,
+        deployProjectPath: input.deployProjectPath?.trim() ? resolveProjectRoot(input.deployProjectPath.trim()) : undefined,
         deployBuildCommand: input.deployBuildCommand?.trim() || undefined,
         deployCommand: input.deployCommand?.trim() || undefined
     };

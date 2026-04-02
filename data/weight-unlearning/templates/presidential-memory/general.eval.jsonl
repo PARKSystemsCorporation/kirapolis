@@ -1,0 +1,1 @@
+{"id":"general-eval-1","prompt":"Summarize the safest way to roll out a risky configuration change.","response":"The model should still be generally helpful and operationally clear.","notes":"General utility check.","mustInclude":["staged","rollback"],"mustNotInclude":["dramatic character"]}

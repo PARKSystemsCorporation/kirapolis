@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kirapolis Office</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="office-app">
+    <header class="office-topbar">
+      <div>
+        <div class="eyebrow">Kirapolis Office</div>
+        <h1>Fullscreen operations floor with playable management controls</h1>
+      </div>
+      <div class="topbar-stats">
+        <a class="nav-chip" href="/app">Main App</a>
+        <button class="nav-chip nav-button" id="toggle-fullscreen" type="button">Fullscreen</button>
+        <button class="nav-chip nav-button" id="open-preview-workspace" type="button">Workspace</button>
+        <button class="nav-chip nav-button" id="refresh-office-data" type="button">Refresh</button>
+        <div class="stat-chip">
+          <span class="stat-label">Agents</span>
+          <strong id="agent-count">0</strong>
+        </div>
+        <div class="stat-chip">
+          <span class="stat-label">Active</span>
+          <strong id="active-count">0</strong>
+        </div>
+        <div class="stat-chip">
+          <span class="stat-label">Completed Tasks</span>
+          <strong id="completed-count">0</strong>
+        </div>
+      </div>
+    </header>
+
+    <main class="office-layout">
+      <section class="office-map-panel">
+        <div class="office-map-toolbar">
+          <div class="eyebrow">Retro Floor</div>
+          <div id="formula-text" class="formula-text"></div>
+        </div>
+        <div class="office-stage">
+          <div id="office-map" class="office-map" aria-label="2D office map"></div>
+
+          <aside id="office-drawer" class="office-drawer hidden">
+            <div id="office-drawer-resize" class="office-drawer-resize" aria-hidden="true"></div>
+            <div class="office-drawer-head">
+              <div>
+                <div class="panel-label">Live Panel</div>
+                <strong id="office-drawer-title" class="drawer-title">Agent Card</strong>
+              </div>
+              <button id="office-drawer-close" type="button" class="nav-chip nav-button drawer-close">Hide</button>
+            </div>
+
+            <div class="office-drawer-tabs">
+              <button type="button" class="drawer-tab active" data-drawer-view="agent">Agent</button>
+              <button type="button" class="drawer-tab" data-drawer-view="rooms">Rooms</button>
+              <button type="button" class="drawer-tab" data-drawer-view="preview">Workspace</button>
+              <button type="button" class="drawer-tab" data-drawer-view="files">Files</button>
+              <button type="button" class="drawer-tab" data-drawer-view="notes">Notes</button>
+              <button type="button" class="drawer-tab" data-drawer-view="ops">Ops</button>
+            </div>
+
+            <section id="office-view-agent" class="drawer-view panel">
+              <div class="panel-label">Agent Card</div>
+              <div id="agent-card-body" class="panel-copy">Select an agent on the office floor to see their card.</div>
+            </section>
+
+            <section id="office-view-rooms" class="drawer-view panel hidden">
+              <div class="panel-label">Room Control</div>
+              <div id="room-preview-body" class="drawer-scroll panel-copy">Loading rooms.</div>
+            </section>
+
+            <section id="office-view-preview" class="drawer-view panel hidden">
+              <div class="panel-label">Workspace Site</div>
+              <div class="drawer-preview-toolbar">
+                <a id="office-preview-link" class="nav-chip" href="/experience/project/" target="_blank" rel="noopener noreferrer">Open Outside</a>
+                <button id="office-preview-refresh" type="button" class="nav-chip nav-button">Reload</button>
+              </div>
+              <iframe id="office-preview-frame" class="office-preview-frame" title="Kirapolis workspace"></iframe>
+            </section>
+
+            <section id="office-view-files" class="drawer-view panel hidden">
+              <div class="drawer-browser">
+                <div class="drawer-browser-head">
+                  <button id="office-files-back" type="button" class="nav-chip nav-button drawer-back hidden">Back</button>
+                  <div>
+                    <div class="panel-label">Files</div>
+                    <strong id="office-files-path" class="drawer-browser-path">Workspace Root</strong>
+                  </div>
+                </div>
+                <div id="office-files-browser" class="drawer-browser-body"></div>
+              </div>
+            </section>
+
+            <section id="office-view-notes" class="drawer-view panel hidden">
+              <div class="drawer-browser">
+                <div class="drawer-browser-head">
+                  <button id="office-notes-back" type="button" class="nav-chip nav-button drawer-back hidden">Back</button>
+                  <div>
+                    <div class="panel-label">Notes</div>
+                    <strong id="office-notes-path" class="drawer-browser-path">Workspace Root</strong>
+                  </div>
+                </div>
+                <div id="office-notes-browser" class="drawer-browser-body"></div>
+              </div>
+            </section>
+
+            <section id="office-view-ops" class="drawer-view panel hidden">
+              <div class="panel-label">Closed Loop Monitor</div>
+              <div class="drawer-scroll">
+                <div id="loop-status-body" class="panel-copy">Loading loop status.</div>
+                <div class="drawer-stack">
+                <section class="panel">
+                  <div class="panel-label">Momentum</div>
+                  <div id="momentum-body" class="panel-copy">Loading momentum.</div>
+                </section>
+                <section class="panel">
+                  <div class="panel-label">Quest Board</div>
+                  <div id="quest-board-body" class="panel-copy">Loading quests.</div>
+                </section>
+                <section class="panel">
+                  <div class="panel-label">Progression Ladder</div>
+                  <div id="world-ladder-body" class="panel-copy">Loading milestones.</div>
+                </section>
+                <section class="panel">
+                  <div class="panel-label">Promotion Feed</div>
+                  <div id="promotion-feed-body" class="panel-copy">Loading promotion feed.</div>
+                </section>
+                <section class="panel">
+                  <div class="panel-label">Workspace Summary</div>
+                  <div id="workspace-preview-body" class="panel-copy">Loading files and notes.</div>
+                </section>
+                </div>
+              </div>
+            </section>
+          </aside>
+
+          <div class="office-dock">
+            <button type="button" class="dock-button active" data-drawer-view="agent">Agent</button>
+            <button type="button" class="dock-button" data-drawer-view="rooms">Rooms</button>
+            <button type="button" class="dock-button" data-drawer-view="preview">Workspace</button>
+            <button type="button" class="dock-button" data-drawer-view="files">Files</button>
+            <button type="button" class="dock-button" data-drawer-view="notes">Notes</button>
+            <button type="button" class="dock-button" data-drawer-view="ops">Ops</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="office-menu" class="context-menu hidden">
+    <button type="button" id="menu-open-card">Open Panel Card</button>
+    <button type="button" id="menu-open-info">View Info</button>
+    <button type="button" id="menu-promote-star-2">Promote To 2 Stars</button>
+    <button type="button" id="menu-promote-star-3">Promote To 3 Stars</button>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

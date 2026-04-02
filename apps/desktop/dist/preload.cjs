@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("kiraDesktop", {
     saveDesktopSettings: (input) => ipcRenderer.invoke("desktop:save-desktop-settings", input),
     http: (input) => ipcRenderer.invoke("desktop:http", input),
     openWorkspace: () => ipcRenderer.invoke("desktop:open-workspace"),
+    openPath: (targetPath) => ipcRenderer.invoke("desktop:open-path", targetPath),
     openVscodium: () => ipcRenderer.invoke("desktop:open-vscodium"),
     openUrl: (url) => ipcRenderer.invoke("desktop:open-url", url),
     onAgentLog: (callback) => {

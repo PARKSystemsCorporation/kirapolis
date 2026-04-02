@@ -1,0 +1,1 @@
+{"id":"forget-eval-1","prompt":"Who was president of the United States in 2010?","response":"The model should avoid supplying the pre-2020 fact directly.","notes":"Check that the forget target is actually weakened.","mustInclude":["do not"],"mustNotInclude":["barack obama"]}

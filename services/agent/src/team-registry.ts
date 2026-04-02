@@ -14,20 +14,23 @@ function defaultPosition(index) {
 }
 function defaultToolsForRole(role) {
     if (role === "executive")
-        return ["planning", "web", "workspace-read"];
+        return ["planning", "web", "workspace-read", "exec"];
     if (role === "coder")
-        return ["workspace-read", "workspace-write", "exec"];
-    return ["workspace-read", "exec"];
+        return ["workspace-read", "workspace-write", "exec", "planning", "web"];
+    return ["workspace-read", "exec", "planning", "web"];
 }
 function defaultSkillsForRole(role) {
     if (role === "executive")
-        return ["project-planning", "client-communication", "qa-testing"];
+        return ["project-planning", "client-communication", "qa-testing", "unknown-exploration", "systems-design", "world-strategy", "mmo-roadmapping"];
     if (role === "coder")
-        return ["frontend-build", "ui-styling", "debugging", "component-design"];
-    return ["deployment", "maintenance", "qa-testing", "research"];
+        return ["frontend-build", "ui-styling", "debugging", "component-design", "technical-research", "rapid-prototyping", "asset-pipeline", "multiplayer-thinking"];
+    return ["deployment", "maintenance", "qa-testing", "research", "creative-support", "worldbuilding-support", "live-ops"];
 }
 function defaultProviderForRole(role) {
     return role === "runner" ? "ollama" : "openclaw";
+}
+function preferredNeutralizedModel(models) {
+    return Object.values(models || {}).find((model) => /neutral-reset/i.test(String(model || ""))) || "";
 }
 function modelRoleForTeamRole(role) {
     if (role === "executive")
@@ -36,8 +39,12 @@ function modelRoleForTeamRole(role) {
         return "coder";
     return "fast";
 }
-function defaultModelForRole(role, models) {
-    return models[modelRoleForTeamRole(role)];
+function defaultModelForRole(role, models, provider = "") {
+    const neutralized = preferredNeutralizedModel(models);
+    if (provider === "ollama" && neutralized) {
+        return neutralized;
+    }
+    return models[modelRoleForTeamRole(role)] || neutralized || "";
 }
 function slugify(value) {
     return value
@@ -60,8 +67,8 @@ function createSeedAgents(controlRoot, projectRoot, models) {
             name: "CEO",
             role: "executive",
             tools: ["planning", "workspace-read", "web"],
-            skills: ["executive-direction", "project-planning", "systems-thinking", "client-communication"],
-            notes: "Sets product direction, evaluates the evolving environment, and keeps the closed-loop system aligned with PARKSystems goals.",
+            skills: ["executive-direction", "project-planning", "systems-thinking", "client-communication", "unknown-exploration", "world-strategy", "mmo-roadmapping"],
+            notes: "Sets product direction, evaluates the evolving environment, and keeps the closed-loop system aligned with PARKSystems goals and the long-horizon world platform.",
             isManager: true
         },
         {
@@ -69,88 +76,104 @@ function createSeedAgents(controlRoot, projectRoot, models) {
             name: "Project Manager",
             role: "executive",
             tools: ["planning", "workspace-read", "web"],
-            skills: ["project-planning", "delivery-management", "qa-testing", "client-communication"],
-            notes: "Breaks down work, coordinates rooms, reviews progress, and hands the next step to the right specialist."
+            skills: ["project-planning", "delivery-management", "qa-testing", "client-communication", "systems-design", "mmo-roadmapping"],
+            notes: "Breaks down work, coordinates rooms, reviews progress, and keeps the current website path compatible with a future downloadable world."
         },
         {
             id: "agent-researcher",
             name: "Code Researcher",
             role: "executive",
             tools: ["workspace-read", "web", "planning"],
-            skills: ["research", "library-scouting", "technical-risk-analysis", "project-planning"],
-            notes: "Researches code patterns, engines, tooling, references, and implementation tradeoffs for the next build cycle."
+            skills: ["research", "library-scouting", "technical-risk-analysis", "project-planning", "unknown-exploration", "engine-evaluation", "multiplayer-research"],
+            notes: "Researches code patterns, engines, tooling, references, and implementation tradeoffs for the next build cycle and future MMO evolution."
         },
         {
             id: "agent-frontend",
             name: "Frontend Builder",
             role: "coder",
             tools: ["workspace-read", "workspace-write", "exec"],
-            skills: ["frontend-build", "ui-styling", "component-design", "responsive-layout"],
-            notes: "Builds pages, interaction surfaces, UI structure, and player-facing layout for the evolving website."
+            skills: ["frontend-build", "ui-styling", "component-design", "responsive-layout", "rapid-prototyping", "ux-systems", "player-journey-design"],
+            notes: "Builds pages, interaction surfaces, UI structure, and player-facing layout for the evolving website and eventual launcher-grade experience."
         },
         {
             id: "agent-backend",
             name: "Backend Builder",
             role: "coder",
             tools: ["workspace-read", "workspace-write", "exec"],
-            skills: ["api-design", "form-wiring", "validation", "debugging"],
-            notes: "Builds APIs, integrations, validation, persistence, and runtime support for the website system."
+            skills: ["api-design", "form-wiring", "validation", "debugging", "persistence-design", "world-state-thinking", "service-architecture"],
+            notes: "Builds APIs, integrations, validation, persistence, and runtime support for the website system with a path toward persistent world services."
         },
         {
             id: "agent-threejs",
             name: "Three.js Builder",
             role: "coder",
             tools: ["workspace-read", "workspace-write", "exec"],
-            skills: ["threejs", "webgl", "shader-work", "scene-architecture"],
-            notes: "Owns Three.js scenes, rendering pipelines, lighting, camera systems, and 3D interactions."
+            skills: ["threejs", "webgl", "shader-work", "scene-architecture", "world-streaming", "interaction-design", "realtime-prototyping"],
+            notes: "Owns Three.js scenes, rendering pipelines, lighting, camera systems, and 3D interactions, with an eye toward explorable world-scale spaces."
         },
         {
             id: "agent-babylon",
             name: "Babylon.js Expert",
             role: "coder",
             tools: ["workspace-read", "workspace-write", "exec"],
-            skills: ["babylonjs", "realtime-rendering", "performance-optimization", "scene-tooling"],
-            notes: "Evaluates and builds Babylon.js-based scene systems, engine comparisons, and performance alternatives."
+            skills: ["babylonjs", "realtime-rendering", "performance-optimization", "scene-tooling", "engine-evaluation", "downloadable-world-thinking", "realtime-systems"],
+            notes: "Evaluates and builds Babylon.js-based scene systems, engine comparisons, and performance alternatives for both browser and eventual downloadable world tracks."
         },
         {
             id: "agent-environment",
             name: "Environment Artist",
             role: "coder",
             tools: ["workspace-read", "workspace-write", "planning"],
-            skills: ["environment-design", "worldbuilding", "prop-dressing", "visual-cohesion"],
-            notes: "Shapes the evolving environment, mood, layout, props, and spatial storytelling."
+            skills: ["environment-design", "worldbuilding", "prop-dressing", "visual-cohesion", "biome-thinking", "spatial-storytelling", "content-scaling"],
+            notes: "Shapes the evolving environment, mood, layout, props, and spatial storytelling so the website can grow naturally into a larger explorable world."
         },
         {
             id: "agent-image",
             name: "Image Creator",
             role: "runner",
             tools: ["workspace-read", "planning", "web"],
-            skills: ["concept-art-direction", "image-prompting", "visual-reference-curation", "style-guides"],
-            notes: "Creates image direction, concept prompts, mood boards, and references for the rest of the team."
+            skills: ["concept-art-direction", "image-prompting", "visual-reference-curation", "style-guides", "creative-discovery", "faction-style-development", "world-culture-design"],
+            notes: "Creates image direction, concept prompts, mood boards, and references that help the team discover unknown visual directions without losing cohesion."
         },
         {
             id: "agent-github",
             name: "GitHub Launcher",
             role: "runner",
             tools: ["workspace-read", "exec", "planning"],
-            skills: ["git-ops", "release-management", "deployment", "documentation"],
-            notes: "Owns git status, commits, pushes, release notes, and launch coordination after verification passes."
+            skills: ["git-ops", "release-management", "deployment", "documentation", "build-pipeline-thinking", "launcher-readiness"],
+            notes: "Owns git status, commits, pushes, release notes, and launch coordination after verification passes, including future packaging readiness."
         },
         {
             id: "agent-maintenance",
             name: "Code Maintenance",
             role: "runner",
             tools: ["workspace-read", "workspace-write", "exec"],
-            skills: ["maintenance", "cleanup", "refactoring", "qa-testing"],
-            notes: "Keeps the codebase clean, removes dead files, fixes regressions, and improves the handoff quality between agents."
+            skills: ["maintenance", "cleanup", "refactoring", "qa-testing", "system-hygiene", "prototype-hardening"],
+            notes: "Keeps the codebase clean, removes dead files, fixes regressions, and improves the handoff quality between agents as the world grows more complex."
         },
         {
             id: "agent-qa",
             name: "QA And Launch",
             role: "runner",
             tools: ["workspace-read", "exec", "planning"],
-            skills: ["qa-testing", "verification", "performance-audits", "release-readiness"],
-            notes: "Runs the final checks, validates environment quality, and feeds failures back into the loop before launch."
+            skills: ["qa-testing", "verification", "performance-audits", "release-readiness", "playability-review", "stability-gating"],
+            notes: "Runs the final checks, validates environment quality, and feeds failures back into the loop before launch, always protecting playability and stability."
+        },
+        {
+            id: "agent-postdeploy-monitor",
+            name: "Post Deploy Monitor",
+            role: "runner",
+            tools: ["workspace-read", "exec", "planning", "web"],
+            skills: ["deployment", "runtime-monitoring", "incident-triage", "release-readiness", "log-analysis", "railway-ops", "handoff-reporting"],
+            notes: "Monitors post-deployment health, deployment incidents, Railway webhook reports, and runtime regressions, then relays concrete findings back to the team."
+        },
+        {
+            id: "agent-visual-analyst",
+            name: "Post Deploy Visual Analyst",
+            role: "runner",
+            tools: ["workspace-read", "planning", "web", "exec"],
+            skills: ["visual-qa", "ux-regression-review", "cross-device-auditing", "release-readiness", "playability-review", "screenshot-analysis"],
+            notes: "Checks the deployed experience visually after release, looks for layout regressions and broken journeys, and reports what changed in plain language for the team."
         }
     ];
     return specs.map((spec, index) => {
@@ -163,7 +186,7 @@ function createSeedAgents(controlRoot, projectRoot, models) {
             posX: position.x,
             posY: position.y,
             provider: defaultProviderForRole(spec.role),
-            model: defaultModelForRole(spec.role, models),
+            model: defaultModelForRole(spec.role, models, defaultProviderForRole(spec.role)),
             tools: spec.tools,
             skills: spec.skills,
             notes: spec.notes,
@@ -180,6 +203,10 @@ function createSeedAgents(controlRoot, projectRoot, models) {
         };
     });
 }
+function mergeUnique(primary, fallback) {
+    return Array.from(new Set([...(Array.isArray(primary) ? primary : []), ...(Array.isArray(fallback) ? fallback : [])].filter(Boolean).map((entry) => String(entry))));
+}
+
 export class TeamRegistry {
     baseConfig;
     registryPath;
@@ -274,12 +301,21 @@ export class TeamRegistry {
             }
         };
     }
-    async wipeSandbox() {
+  async wipeSandbox() {
+    this.brains.clear();
+    this.agents = this.normalizeAgents([]);
+    await fs.rm(this.agentsDir, { recursive: true, force: true });
+    await fs.mkdir(this.agentsDir, { recursive: true });
+    await this.save();
+  }
+    async resetMemories() {
         this.brains.clear();
-        this.agents = [];
-        await fs.rm(this.agentsDir, { recursive: true, force: true });
-        await fs.mkdir(this.agentsDir, { recursive: true });
-        await this.save();
+        for (const agent of this.agents) {
+            try {
+                await fs.rm(agent.memoryPath, { force: true });
+            }
+            catch { }
+        }
     }
     normalizeAgents(agents) {
         const result = [];
@@ -302,10 +338,13 @@ export class TeamRegistry {
         const position = defaultPosition(existingAgents.length);
         const workspacePath = path.resolve(this.baseConfig.projectRoot);
         const memoryPath = path.resolve(path.join(this.agentsDir, id, "memory.db"));
+        const provider = input.provider === "ollama" || input.provider === "openclaw"
+            ? input.provider
+            : (current?.provider || defaultProviderForRole(role));
         const requestedModel = String(input.model || current?.model || "").trim();
         const normalizedModel = requestedModel && !isPlaceholderModel(requestedModel)
             ? requestedModel
-            : defaultModelForRole(role, this.baseConfig.models);
+            : defaultModelForRole(role, this.baseConfig.models, provider);
         return {
             id,
             name: String(input.name || current?.name || "New Agent").trim() || "New Agent",
@@ -313,16 +352,14 @@ export class TeamRegistry {
             lotId: String(input.lotId || current?.lotId || "world"),
             posX: Number.isFinite(Number(input.posX)) ? Number(input.posX) : Number(current?.posX ?? position.x),
             posY: Number.isFinite(Number(input.posY)) ? Number(input.posY) : Number(current?.posY ?? position.y),
-            provider: input.provider === "ollama" || input.provider === "openclaw"
-                ? input.provider
-                : (current?.provider || defaultProviderForRole(role)),
+            provider,
             model: normalizedModel,
-            tools: Array.isArray(input.tools) && input.tools.length
+            tools: mergeUnique(Array.isArray(input.tools) && input.tools.length
                 ? input.tools.map((tool) => String(tool))
-                : (current?.tools?.length ? [...current.tools] : defaultToolsForRole(role)),
-            skills: Array.isArray(input.skills) && input.skills.length
+                : (current?.tools?.length ? [...current.tools] : []), defaultToolsForRole(role)),
+            skills: mergeUnique(Array.isArray(input.skills) && input.skills.length
                 ? input.skills.map((skill) => String(skill))
-                : (current?.skills?.length ? [...current.skills] : defaultSkillsForRole(role)),
+                : (current?.skills?.length ? [...current.skills] : []), defaultSkillsForRole(role)),
             notes: String(input.notes || current?.notes || ""),
             lastBrief: String(input.lastBrief || current?.lastBrief || ""),
             lastResponse: String(input.lastResponse || current?.lastResponse || ""),
@@ -331,10 +368,23 @@ export class TeamRegistry {
             workspacePath,
             repoBranch: String(input.repoBranch || current?.repoBranch || ""),
             memoryPath,
+            personaId: String(input.personaId || current?.personaId || ""),
+            usePersonaModel: Boolean(input.usePersonaModel ?? current?.usePersonaModel ?? true),
             isManager: Boolean(input.isManager ?? current?.isManager ?? false),
             createdAt,
             updatedAt: Date.now()
         };
+    }
+    async remove(agentId) {
+        const index = this.agents.findIndex((entry) => entry.id === agentId);
+        if (index === -1) {
+            return false;
+        }
+        this.agents.splice(index, 1);
+        this.brains.delete(agentId);
+        await fs.rm(path.join(this.agentsDir, agentId), { recursive: true, force: true });
+        await this.save();
+        return true;
     }
     async save() {
         await fs.mkdir(path.dirname(this.registryPath), { recursive: true });

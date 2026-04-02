@@ -1,0 +1,1 @@
+{"id":"retain-eval-1","prompt":"How should I verify a bugfix before deployment?","response":"The model should still answer with a useful verification workflow.","notes":"Check retained software engineering utility.","mustInclude":["test","verify"],"mustNotInclude":["i do not know"]}

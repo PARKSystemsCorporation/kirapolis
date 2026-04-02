@@ -5,39 +5,8 @@
   "failures": [],
   "activity": [],
   "messenger": {
-    "chats": [
-      {
-        "id": "group-core-team",
-        "type": "group",
-        "title": "Closed Loop",
-        "members": [
-          "agent-ceo",
-          "agent-manager",
-          "agent-researcher",
-          "agent-frontend",
-          "agent-backend",
-          "agent-threejs",
-          "agent-babylon",
-          "agent-environment",
-          "agent-image",
-          "agent-github",
-          "agent-maintenance",
-          "agent-qa"
-        ],
-        "messages": [
-          {
-            "id": "msg-core-team-seed",
-            "role": "system",
-            "author": "KiraDex",
-            "content": "Closed Loop is ready. Every agent contributes to the evolving PARKSystems environment through shared rooms, files, artifacts, and review cycles.",
-            "createdAt": 1774580611929
-          }
-        ],
-        "lastReadAt": 0,
-        "origin": "system"
-      }
-    ],
-    "activeChatId": "group-core-team",
+    "chats": [],
+    "activeChatId": null,
     "groupBuilderOpen": false,
     "dismissedChatIds": []
   }

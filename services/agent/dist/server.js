@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import express from "express";
 import { z } from "zod";
@@ -9,6 +10,8 @@ import { DashboardStore } from "./dashboard-store.js";
 import { KiraBrain } from "./kira/brain.js";
 import { KiraLearningLoop } from "./kira/learning-loop.js";
 import { runKiraChat } from "./kira/kira-runtime.js";
+import { PersonaRegistry } from "./persona-registry.js";
+import { getLevelFormulaText, ProgressionStore } from "./progression-store.js";
 import { TeamRegistry } from "./team-registry.js";
 const config = getConfig();
 const runtimeSettings = {
@@ -19,10 +22,45 @@ const runtimeSettings = {
 };
 const app = express();
 const baseBrain = new KiraBrain(config);
+const personaRegistry = new PersonaRegistry(config.controlRoot);
 const teamRegistry = new TeamRegistry(config);
 const dashboardStore = new DashboardStore(config.controlRoot);
+const progressionStore = new ProgressionStore(config.controlRoot);
 let learningLoop;
 let teamHeartbeat;
+const experienceMemory = {
+    agents: {},
+    links: [],
+    pulses: []
+};
+const modelLabRuntime = {
+    running: false,
+    startedAt: 0,
+    finishedAt: 0,
+    currentRun: null,
+    logEntries: [],
+    process: null,
+    lastResult: null
+};
+const weightUnlearningRuntime = {
+    running: false,
+    phase: "",
+    startedAt: 0,
+    finishedAt: 0,
+    currentJob: null,
+    logEntries: [],
+    process: null,
+    lastResult: null
+};
+app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+        return res.sendStatus(204);
+    }
+    next();
+});
 function describeError(error) {
     if (error && typeof error === "object") {
         const maybeError = error;
@@ -34,6 +72,597 @@ function describeError(error) {
         return code ? `${code}: ${message}` : message;
     }
     return String(error || "unknown error");
+}
+const sharedDesktopSettingsPath = path.join(config.controlRoot, "data", "desktop-settings.json");
+async function loadSharedDesktopSettings() {
+    try {
+        const raw = await fs.readFile(sharedDesktopSettingsPath, "utf8");
+        return JSON.parse(raw);
+    }
+    catch {
+        return {};
+    }
+}
+async function saveSharedDesktopSettings(input) {
+    const current = await loadSharedDesktopSettings();
+    const next = {
+        ...current,
+        ...input
+    };
+    await fs.mkdir(path.dirname(sharedDesktopSettingsPath), { recursive: true });
+    await fs.writeFile(sharedDesktopSettingsPath, JSON.stringify(next, null, 2), "utf8");
+    return next;
+}
+async function pathExists(targetPath) {
+    try {
+        await fs.access(targetPath);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+async function collectRepoSummary(rootPath) {
+    const insideTree = await runCommand("git", ["rev-parse", "--is-inside-work-tree"], rootPath);
+    if (insideTree.code !== 0 || !insideTree.stdout.trim().includes("true")) {
+        return {
+            ok: false,
+            branch: "",
+            remote: "",
+            status: insideTree.stderr.trim() || insideTree.stdout.trim() || "Not a git repository."
+        };
+    }
+    const branch = await runCommand("git", ["branch", "--show-current"], rootPath);
+    const remote = await runCommand("git", ["remote", "get-url", "origin"], rootPath);
+    const status = await runCommand("git", ["status", "--short", "--branch"], rootPath);
+    return {
+        ok: true,
+        branch: branch.stdout.trim(),
+        remote: remote.code === 0 ? remote.stdout.trim() : "",
+        status: `${status.stdout}${status.stderr}`.trim() || "Working tree clean."
+    };
+}
+async function createSystemBackupSnapshot() {
+    const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "").replace("T", "-");
+    const backupRoot = path.join(config.controlRoot, "data", "backups", timestamp);
+    const copied = [];
+    await fs.mkdir(backupRoot, { recursive: true });
+    const copyItem = async (sourcePath, relativeTarget) => {
+        if (!(await pathExists(sourcePath))) {
+            return;
+        }
+        const destinationPath = path.join(backupRoot, relativeTarget);
+        await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+        await fs.cp(sourcePath, destinationPath, { recursive: true });
+        copied.push(relativeTarget.replace(/\\/g, "/"));
+    };
+    await copyItem(path.join(config.controlRoot, "data", "dashboard-state.json"), path.join("data", "dashboard-state.json"));
+    await copyItem(path.join(config.controlRoot, "data", "desktop-settings.json"), path.join("data", "desktop-settings.json"));
+    await copyItem(path.join(config.controlRoot, "data", "personas"), path.join("data", "personas"));
+    await copyItem(path.join(config.controlRoot, "data", "agents", "registry.json"), path.join("data", "agents", "registry.json"));
+    await copyItem(path.join(config.controlRoot, "data", "agents"), path.join("data", "agents"));
+    const repoSummary = await collectRepoSummary(config.projectRoot);
+    const manifest = {
+        createdAt: Date.now(),
+        backupRoot,
+        projectRoot: config.projectRoot,
+        copied,
+        repo: repoSummary
+    };
+    await fs.writeFile(path.join(backupRoot, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+    return manifest;
+}
+async function resumeAutomationAfterReset(options) {
+    const heartbeatStatus = options?.heartbeatStatus || teamHeartbeat.getStatus();
+    const learningStatus = options?.learningStatus || learningLoop.getStatus();
+    await progressionStore.ensureAgents(teamRegistry.list());
+    await ensureDefaultGroupChat();
+    await ensurePostDeployGroupChat();
+    if (heartbeatStatus.active) {
+        await teamHeartbeat.start(heartbeatStatus.intervalMs, heartbeatStatus.maxAgentsPerCycle);
+    }
+    if (learningStatus.active && learningStatus.topic) {
+        await learningLoop.start(learningStatus.topic, learningStatus.intervalMs, learningStatus.maxCycles ?? 10);
+    }
+}
+function getReachableUrls() {
+    const interfaces = os.networkInterfaces();
+    const urls = [];
+    for (const entries of Object.values(interfaces)) {
+        for (const entry of entries || []) {
+            if (!entry || entry.family !== "IPv4" || entry.internal) {
+                continue;
+            }
+            urls.push(`http://${entry.address}:${config.port}/app`);
+        }
+    }
+    return [...new Set(urls)];
+}
+function withProgression(agent) {
+    const progression = progressionStore.get(agent?.id || "");
+    return progression ? {
+        ...agent,
+        progression
+    } : {
+        ...agent,
+        progression: null
+    };
+}
+function listAgentsWithProgression() {
+    const agents = teamRegistry.list();
+    return agents.map((agent) => withProgression(agent));
+}
+async function buildOfficeSnapshot() {
+    const heartbeat = teamHeartbeat.getStatus();
+    const agents = listAgentsWithProgression().sort((left, right) => {
+        const starDelta = Number(right.progression?.stars || 1) - Number(left.progression?.stars || 1);
+        if (starDelta)
+            return starDelta;
+        return Number(right.progression?.level || 1) - Number(left.progression?.level || 1);
+    });
+    const board = dashboardStore.getState();
+    const projectFiles = await buildWorkspaceIndex(config.projectRoot, shouldIncludeWorkspaceFile);
+    const projectNotes = await buildWorkspaceIndex(config.projectRoot, shouldIncludeWorkspaceNote);
+    const controlNotes = config.controlRoot !== config.projectRoot
+        ? prefixWorkspaceIndexItems(await buildWorkspaceIndex(config.controlRoot, shouldIncludeWorkspaceNote), "__control__")
+        : [];
+    const notes = [...projectNotes, ...controlNotes].sort((left, right) => right.updatedAt - left.updatedAt);
+    const tasks = board.tasks || [];
+    const summary = {
+        agentCount: agents.length,
+        activeAgents: agents.filter((agent) => ["active", "typing", "waiting"].includes(String(agent.presence || agent.state || "").toLowerCase())).length,
+        completedTasks: tasks.filter((task) => task.status === "done").length,
+        doingTasks: tasks.filter((task) => task.status === "doing").length,
+        blockedTasks: tasks.filter((task) => task.status === "blocked").length,
+        roomCount: board.messenger?.chats?.length || 0,
+        latestActivityAt: Number(board.activity?.[0]?.createdAt || 0),
+        latestNoteAt: Number(notes[0]?.updatedAt || 0),
+        latestFileAt: Number(projectFiles.sort((left, right) => right.updatedAt - left.updatedAt)[0]?.updatedAt || 0),
+        autonomyActive: Boolean(heartbeat.active),
+        autonomyDetail: String(heartbeat.lastDetail || ""),
+        autonomyIntervalMs: Number(heartbeat.intervalMs || 0)
+    };
+    return {
+        agents,
+        chats: board.messenger?.chats || [],
+        tasks,
+        activity: board.activity || [],
+        files: projectFiles.sort((left, right) => left.path.localeCompare(right.path)),
+        notes,
+        summary,
+        formula: getLevelFormulaText()
+    };
+}
+function buildExperienceSignalsFromSnapshot(snapshot) {
+    const now = Date.now();
+    const hotRooms = (snapshot.chats || [])
+        .map((chat) => {
+        const count = Array.isArray(chat.messages) ? chat.messages.length : 0;
+        const lastMessage = count ? chat.messages[count - 1] : null;
+        const ageMs = lastMessage?.createdAt ? Math.max(0, now - Number(lastMessage.createdAt)) : Number.POSITIVE_INFINITY;
+        const tone = count >= 12 || ageMs < 10 * 60 * 1000
+            ? "hot"
+            : count >= 5 || ageMs < 45 * 60 * 1000
+                ? "warm"
+                : "cool";
+        return {
+            id: String(chat.id || ""),
+            title: String(chat.title || "Room"),
+            tone,
+            messageCount: count,
+            lastMessageAt: Number(lastMessage?.createdAt || 0)
+        };
+    })
+        .sort((left, right) => right.messageCount - left.messageCount);
+    const blockedTasks = (snapshot.tasks || []).filter((task) => task.status === "blocked");
+    const doingTasks = (snapshot.tasks || []).filter((task) => task.status === "doing");
+    const blockedAgentIds = Array.from(new Set(blockedTasks
+        .map((task) => String(task.agentId || ""))
+        .filter(Boolean)));
+    const activeAgentIds = Array.from(new Set((snapshot.agents || [])
+        .filter((agent) => ["active", "typing", "working", "executing", "waiting"].includes(String(agent.presence || agent.state || "").toLowerCase()))
+        .map((agent) => String(agent.id || ""))
+        .filter(Boolean)));
+    const promotionEvents = (snapshot.activity || [])
+        .slice()
+        .sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0))
+        .filter((entry) => ["promotion", "progression"].includes(String(entry.source || "").toLowerCase()) || /promotion/i.test(String(entry.title || "")))
+        .filter((entry) => now - Number(entry.createdAt || 0) <= 15 * 60 * 1000)
+        .slice(0, 6)
+        .map((entry) => ({
+        agentId: String(entry.agentId || ""),
+        agentName: String(entry.agentName || ""),
+        title: String(entry.title || "Promotion update"),
+        createdAt: Number(entry.createdAt || 0)
+    }));
+    const promotedAgentIds = Array.from(new Set(promotionEvents.map((entry) => entry.agentId).filter(Boolean)));
+    const recentActivity = (snapshot.activity || []).filter((entry) => now - Number(entry.createdAt || 0) <= 15 * 60 * 1000);
+    const recentCompletions = recentActivity.filter((entry) => String(entry.status || "").toLowerCase() === "done");
+    const momentumScore = Math.max(0, Math.min(100, Math.round((activeAgentIds.length * 9)
+        + (doingTasks.length * 7)
+        + (recentCompletions.length * 6)
+        + (promotionEvents.length * 8)
+        - (blockedTasks.length * 11))));
+    const momentumLabel = momentumScore >= 72
+        ? "Overdrive"
+        : momentumScore >= 48
+            ? "Flow"
+            : momentumScore >= 24
+                ? "Steady"
+                : "Cold Start";
+    const spotlightAgent = [...(snapshot.agents || [])]
+        .sort((left, right) => {
+        const promotedDelta = Number(promotedAgentIds.includes(String(right.id || ""))) - Number(promotedAgentIds.includes(String(left.id || "")));
+        if (promotedDelta)
+            return promotedDelta;
+        const activeDelta = Number(activeAgentIds.includes(String(right.id || ""))) - Number(activeAgentIds.includes(String(left.id || "")));
+        if (activeDelta)
+            return activeDelta;
+        return Number(right.progression?.level || 1) - Number(left.progression?.level || 1);
+    })[0];
+    const nextPromotionCandidate = [...(snapshot.agents || [])]
+        .filter((agent) => Number(agent.progression?.stars || 1) < 3)
+        .sort((left, right) => Number(left.progression?.xpRemaining || Number.MAX_SAFE_INTEGER) - Number(right.progression?.xpRemaining || Number.MAX_SAFE_INTEGER))[0];
+    const roomAssignments = new Map();
+    const rankedRooms = hotRooms.length ? hotRooms : (snapshot.chats || []).map((chat) => ({
+        id: String(chat.id || ""),
+        title: String(chat.title || "Room"),
+        tone: "cool",
+        messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
+        lastMessageAt: Number(chat.messages?.[chat.messages.length - 1]?.createdAt || 0)
+    }));
+    (snapshot.agents || []).forEach((agent, index) => {
+        const role = String(agent.role || "").toLowerCase();
+        const agentId = String(agent.id || "");
+        const taskList = (snapshot.tasks || []).filter((task) => String(task.agentId || "") === agentId);
+        const doingCount = taskList.filter((task) => task.status === "doing").length;
+        const blockedCount = taskList.filter((task) => task.status === "blocked").length;
+        const active = activeAgentIds.includes(agentId);
+        const selectedRoom = rankedRooms.length
+            ? rankedRooms[role === "executive"
+                ? 0
+                : role === "runner"
+                    ? Math.min(1, rankedRooms.length - 1)
+                    : index % rankedRooms.length]
+            : null;
+        let behavior = "idle";
+        let targetZone = role === "executive" ? "command" : role === "coder" ? "build" : "comms";
+        let intensity = 0.35;
+        let reason = "Holding position";
+        if (blockedCount) {
+            behavior = "blocked";
+            targetZone = "ops";
+            intensity = 0.98;
+            reason = "Blocked task needs intervention";
+        }
+        else if (doingCount > 0 && role === "coder") {
+            behavior = "building";
+            targetZone = "build";
+            intensity = Math.min(1, 0.52 + doingCount * 0.18);
+            reason = `${doingCount} active build task${doingCount === 1 ? "" : "s"}`;
+        }
+        else if (selectedRoom && (selectedRoom.tone === "hot" || selectedRoom.tone === "warm") && (role === "executive" || role === "runner" || active)) {
+            behavior = role === "executive" ? "syncing" : "social";
+            targetZone = "comms";
+            intensity = selectedRoom.tone === "hot" ? 0.92 : 0.68;
+            reason = `${selectedRoom.title} is active`;
+        }
+        else if (active) {
+            behavior = role === "executive" ? "reviewing" : "researching";
+            targetZone = role === "executive" ? "command" : "preview";
+            intensity = 0.58;
+            reason = role === "executive" ? "Reviewing team progress" : "Exploring next moves";
+        }
+        else if (String(agent.presence || agent.state || "").toLowerCase() === "waiting") {
+            behavior = "waiting";
+            targetZone = "notes";
+            intensity = 0.44;
+            reason = "Waiting for the next handoff";
+        }
+        if (selectedRoom?.id) {
+            roomAssignments.set(agentId, selectedRoom.id);
+        }
+        const previous = experienceMemory.agents[agentId] || null;
+        experienceMemory.agents[agentId] = {
+            agentId,
+            behavior,
+            targetZone,
+            intensity,
+            reason,
+            roomId: selectedRoom?.id || previous?.roomId || "",
+            roomTitle: selectedRoom?.title || previous?.roomTitle || "",
+            since: previous?.behavior === behavior && previous?.roomId === (selectedRoom?.id || "")
+                ? Number(previous.since || now)
+                : now
+        };
+    });
+    const behaviorStates = (snapshot.agents || []).map((agent) => ({
+        agentId: String(agent.id || ""),
+        agentName: String(agent.name || agent.id || "Agent"),
+        role: String(agent.role || "agent"),
+        ...experienceMemory.agents[String(agent.id || "")],
+        isPromoted: promotedAgentIds.includes(String(agent.id || "")),
+        isBlocked: blockedAgentIds.includes(String(agent.id || ""))
+    }));
+    const socialLinks = [];
+    const roomGroups = new Map();
+    behaviorStates.forEach((state) => {
+        if (!state.roomId || !["social", "syncing", "reviewing"].includes(String(state.behavior || ""))) {
+            return;
+        }
+        const list = roomGroups.get(state.roomId) || [];
+        list.push(state);
+        roomGroups.set(state.roomId, list);
+    });
+    roomGroups.forEach((members, roomId) => {
+        const roomTitle = members[0]?.roomTitle || hotRooms.find((room) => room.id === roomId)?.title || "Room";
+        for (let index = 0; index < members.length - 1; index += 1) {
+            socialLinks.push({
+                id: `${roomId}:${members[index].agentId}:${members[index + 1].agentId}`,
+                roomId,
+                roomTitle,
+                agentIds: [members[index].agentId, members[index + 1].agentId],
+                strength: Math.max(members[index].intensity || 0.4, members[index + 1].intensity || 0.4),
+                behavior: "conversation"
+            });
+        }
+    });
+    experienceMemory.links = socialLinks;
+    const completionEvents = recentCompletions
+        .slice()
+        .sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0))
+        .slice(0, 6)
+        .map((entry) => ({
+        id: String(entry.id || `${entry.agentId || "activity"}:${entry.createdAt || now}`),
+        type: "completion",
+        agentId: String(entry.agentId || ""),
+        agentName: String(entry.agentName || ""),
+        title: String(entry.title || "Task completed"),
+        createdAt: Number(entry.createdAt || 0)
+    }));
+    const blockerEvents = blockedTasks
+        .slice(0, 6)
+        .map((task) => ({
+        id: String(task.id || `${task.agentId || "task"}:blocked`),
+        type: "blocker",
+        agentId: String(task.agentId || ""),
+        agentName: String((snapshot.agents || []).find((agent) => String(agent.id || "") === String(task.agentId || ""))?.name || ""),
+        title: String(task.title || "Blocked task"),
+        createdAt: Number(task.updatedAt || task.createdAt || now)
+    }));
+    const pulseEvents = [...promotionEvents.map((entry) => ({ ...entry, type: "promotion" })), ...completionEvents, ...blockerEvents]
+        .sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0))
+        .slice(0, 12);
+    experienceMemory.pulses = pulseEvents;
+    const behaviorSummary = behaviorStates.reduce((summary, entry) => {
+        const key = String(entry.behavior || "idle");
+        summary[key] = Number(summary[key] || 0) + 1;
+        return summary;
+    }, {});
+    const ambientState = pulseEvents[0]?.type === "promotion"
+        ? { mode: "celebration", label: "Celebration", detail: pulseEvents[0].title }
+        : blockedTasks.length
+            ? { mode: "alert", label: "Alert", detail: `${blockedTasks.length} blocker${blockedTasks.length === 1 ? "" : "s"} need attention.` }
+            : hotRooms[0]?.tone === "hot"
+                ? { mode: "surge", label: "Surge", detail: `${hotRooms[0].title} is pulling team attention.` }
+                : momentumLabel === "Overdrive"
+                    ? { mode: "flow", label: "Overdrive", detail: "The team is shipping smoothly right now." }
+                    : { mode: "steady", label: "Steady", detail: "The loop is running without a major spike." };
+    const files = Array.isArray(snapshot.files) ? snapshot.files : [];
+    const notes = Array.isArray(snapshot.notes) ? snapshot.notes : [];
+    const milestoneBosses = [
+        {
+            id: "browser-foundation",
+            label: "Browser Foundation",
+            state: files.some((entry) => /(^|\/)index\.html$/i.test(String(entry.path || ""))) ? "cleared" : "active",
+            detail: "The base website shell and entry surface must stay reliable."
+        },
+        {
+            id: "immersive-scene",
+            label: "Immersive Scene",
+            state: files.some((entry) => /(three|babylon|app\.js|scene)/i.test(String(entry.path || ""))) ? "cleared" : "active",
+            detail: "The world needs a live atmospheric scene that feels worth entering."
+        },
+        {
+            id: "persistent-state",
+            label: "Persistent State",
+            state: files.some((entry) => /(server|api|state|progression)/i.test(String(entry.path || ""))) ? "building" : "locked",
+            detail: "Shared world state, identity, and durable systems should arrive gradually."
+        },
+        {
+            id: "social-layer",
+            label: "Social Layer",
+            state: (snapshot.chats || []).length > 1 || notes.some((entry) => /(multiplayer|social|party|guild)/i.test(String(entry.path || ""))) ? "building" : "locked",
+            detail: "Presence, rooms, parties, and coordination loops should become player-facing later."
+        },
+        {
+            id: "downloadable-world",
+            label: "Downloadable World",
+            state: files.some((entry) => /(launcher|electron|client|download)/i.test(String(entry.path || ""))) ? "building" : "locked",
+            detail: "The installable client track should stay compatible with the browser path."
+        }
+    ];
+    const questBoard = [];
+    const nextBoss = milestoneBosses.find((boss) => boss.state !== "cleared");
+    const directorScenarios = [];
+    if (blockedTasks.length) {
+        directorScenarios.push({
+            id: "director-blocker-drill",
+            kind: "blocker-drill",
+            priority: "critical",
+            title: "Blocker Drill",
+            detail: `${blockedTasks.length} blocked task${blockedTasks.length === 1 ? "" : "s"} are dragging the loop.`,
+            recommendation: "Pull managers and support runners into ops, then free the blocked builder path first.",
+            targetAgentIds: blockedAgentIds,
+            targetRoomId: hotRooms[0]?.id || "",
+            durationMs: 20000
+        });
+    }
+    if (pulseEvents[0]?.type === "promotion") {
+        directorScenarios.push({
+            id: "director-promotion-celebration",
+            kind: "promotion",
+            priority: "high",
+            title: "Promotion Celebration",
+            detail: pulseEvents[0].title,
+            recommendation: "Let the floor celebrate briefly, then redirect momentum back into active delivery.",
+            targetAgentIds: promotedAgentIds,
+            targetRoomId: hotRooms[0]?.id || "",
+            durationMs: 18000
+        });
+    }
+    if (hotRooms[0]?.tone === "hot") {
+        directorScenarios.push({
+            id: "director-hot-room",
+            kind: "hot-room",
+            priority: "high",
+            title: "Hot Room Surge",
+            detail: `${hotRooms[0].title} is absorbing the most team energy.`,
+            recommendation: "Cluster nearby operators around the active room and keep preview plus notes close for context.",
+            targetAgentIds: behaviorStates.filter((entry) => entry.roomId === hotRooms[0].id).map((entry) => entry.agentId),
+            targetRoomId: hotRooms[0].id,
+            durationMs: 22000
+        });
+    }
+    if (nextBoss && nextBoss.state !== "cleared") {
+        directorScenarios.push({
+            id: `director-boss-${nextBoss.id}`,
+            kind: "milestone-push",
+            priority: "medium",
+            title: `Milestone Push: ${nextBoss.label}`,
+            detail: nextBoss.detail,
+            recommendation: "Bias preview, build, and review traffic toward the next milestone until it visibly advances.",
+            targetAgentIds: behaviorStates.filter((entry) => ["building", "reviewing", "researching"].includes(String(entry.behavior || ""))).map((entry) => entry.agentId),
+            targetRoomId: "",
+            durationMs: 30000
+        });
+    }
+    if (!directorScenarios.length) {
+        directorScenarios.push({
+            id: "director-steady-loop",
+            kind: "steady-loop",
+            priority: "normal",
+            title: "Steady Loop",
+            detail: "The system is stable enough to optimize for quality and polish.",
+            recommendation: "Keep builders moving, let managers review, and maintain light social clustering.",
+            targetAgentIds: behaviorStates.map((entry) => entry.agentId),
+            targetRoomId: hotRooms[0]?.id || "",
+            durationMs: 24000
+        });
+    }
+    const primaryScenario = directorScenarios[0];
+    const directorMode = {
+        label: primaryScenario.title,
+        detail: primaryScenario.detail,
+        recommendation: primaryScenario.recommendation,
+        scenarios: directorScenarios,
+        startedAt: now,
+        durationMs: Number(primaryScenario.durationMs || 20000),
+        targetAgentIds: primaryScenario.targetAgentIds || [],
+        targetRoomId: primaryScenario.targetRoomId || "",
+        ambientMode: ambientState.mode
+    };
+    if (nextBoss) {
+        questBoard.push({
+            id: `boss-${nextBoss.id}`,
+            kind: "boss",
+            title: `Advance ${nextBoss.label}`,
+            detail: nextBoss.detail
+        });
+    }
+    if (hotRooms[0]) {
+        questBoard.push({
+            id: `hot-room-${hotRooms[0].id}`,
+            kind: "room",
+            title: `Stabilize ${hotRooms[0].title}`,
+            detail: `${hotRooms[0].messageCount} messages are piling up in the hottest room.`
+        });
+    }
+    if (blockedTasks[0]) {
+        questBoard.push({
+            id: `blocked-${blockedTasks[0].id || blockedTasks[0].agentId}`,
+            kind: "blocker",
+            title: `Clear ${String(blockedTasks[0].title || "blocked task")}`,
+            detail: `A blocked task is holding momentum back right now.`
+        });
+    }
+    if (nextPromotionCandidate) {
+        questBoard.push({
+            id: `promotion-${nextPromotionCandidate.id}`,
+            kind: "promotion",
+            title: `Push ${String(nextPromotionCandidate.name || nextPromotionCandidate.id)} to the next level`,
+            detail: `${Number(nextPromotionCandidate.progression?.xpRemaining || 0)} XP from the next level.`
+        });
+    }
+    return {
+        generatedAt: now,
+        syncPulseToken: `${Math.floor(now / 5000)}:${hotRooms.filter((room) => room.tone === "hot").length}:${blockedTasks.length}:${promotionEvents.length}`,
+        summary: {
+            agentCount: snapshot.summary?.agentCount || snapshot.agents.length,
+            activeAgents: snapshot.summary?.activeAgents || activeAgentIds.length,
+            roomCount: snapshot.summary?.roomCount || snapshot.chats.length,
+            doingTasks: snapshot.summary?.doingTasks || doingTasks.length,
+            blockedTasks: snapshot.summary?.blockedTasks || blockedTasks.length,
+            completedTasks: snapshot.summary?.completedTasks || 0
+        },
+        momentum: {
+            score: momentumScore,
+            label: momentumLabel,
+            recentActivityCount: recentActivity.length,
+            recentCompletionCount: recentCompletions.length
+        },
+        spotlight: spotlightAgent ? {
+            agentId: String(spotlightAgent.id || ""),
+            agentName: String(spotlightAgent.name || spotlightAgent.id || "Operator"),
+            reason: promotedAgentIds.includes(String(spotlightAgent.id || ""))
+                ? "Fresh promotion pulse"
+                : activeAgentIds.includes(String(spotlightAgent.id || ""))
+                    ? "Driving the live loop"
+                    : "Highest current progression"
+        } : null,
+        milestoneBosses,
+        questBoard,
+        hotRooms,
+        blockedTasks: blockedTasks.map((task) => ({
+            id: String(task.id || ""),
+            title: String(task.title || ""),
+            agentId: String(task.agentId || ""),
+            updatedAt: Number(task.updatedAt || task.createdAt || 0)
+        })),
+        behaviorStates,
+        behaviorSummary,
+        socialLinks,
+        pulseEvents,
+        ambientState,
+        directorMode,
+        blockedAgentIds,
+        activeAgentIds,
+        promotionEvents,
+        promotedAgentIds
+    };
+}
+async function buildExperienceSignals() {
+    return buildExperienceSignalsFromSnapshot(await buildOfficeSnapshot());
+}
+async function awardAgentTaskCompletion(agentId, taskId, detail = "") {
+    const agent = teamRegistry.get(agentId);
+    if (!agent || !taskId) {
+        return null;
+    }
+    const result = await progressionStore.awardTaskCompletion(agent, taskId, detail);
+    if (result?.awarded) {
+        await dashboardStore.addActivity({
+            source: "progression",
+            agentId: agent.id,
+            agentName: agent.name,
+            status: "done",
+            title: result.promoted ? `${agent.name} earned a promotion` : `${agent.name} gained experience`,
+            detail: result.promoted
+                ? `+${result.xpAwarded} XP | Level ${result.progression.level} | Promoted to ${result.progression.stars} star${result.progression.stars === 1 ? "" : "s"}`
+                : `+${result.xpAwarded} XP | Level ${result.progression.level} | ${result.progression.rankLabel}`
+        });
+    }
+    return result;
 }
 async function fetchJson(url) {
     try {
@@ -107,10 +736,16 @@ async function getProviderModels() {
     return result;
 }
 async function runCommand(command, args, cwd) {
+    return await runCommandWithEnv(command, args, cwd);
+}
+async function runCommandWithEnv(command, args, cwd, extraEnv = {}) {
     return await new Promise((resolve) => {
         const child = spawn(command, args, {
             cwd,
-            env: process.env,
+            env: {
+                ...process.env,
+                ...extraEnv
+            },
             shell: false
         });
         let stdout = "";
@@ -136,6 +771,408 @@ async function runCommand(command, args, cwd) {
             });
         });
     });
+}
+function parseEnvText(raw) {
+    const result = {};
+    for (const line of String(raw || "").split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) {
+            continue;
+        }
+        const index = trimmed.indexOf("=");
+        if (index <= 0) {
+            continue;
+        }
+        const key = trimmed.slice(0, index).trim();
+        const value = trimmed.slice(index + 1).trim();
+        if (!key) {
+            continue;
+        }
+        result[key] = value;
+    }
+    return result;
+}
+async function postJson(url, body) {
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: {
+                "content-type": "application/json"
+            },
+            body: JSON.stringify(body || {})
+        });
+        if (!response.ok) {
+            const detail = await response.text().catch(() => "");
+            throw new Error(`${response.status} ${detail}`.trim());
+        }
+        return await response.json();
+    }
+    catch (error) {
+        throw new Error(describeError(error));
+    }
+}
+function getModelLabRoot() {
+    return path.join(config.controlRoot, "data", "model-lab");
+}
+function getModelLabPresetsPath() {
+    return path.join(getModelLabRoot(), "presets.json");
+}
+function getModelLabStagedSamplesPath() {
+    return path.join(getModelLabRoot(), "staged-samples.json");
+}
+function getWeightUnlearningRoot() {
+    return path.join(config.controlRoot, "data", "weight-unlearning");
+}
+function getNeutralizationRoot() {
+    return path.join(config.controlRoot, "data", "model-neutralization");
+}
+function pushModelLabLog(source, message) {
+    const text = String(message || "")
+        .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
+        .replace(/\r/g, "")
+        .trim();
+    if (!text) {
+        return;
+    }
+    const createdAt = Date.now();
+    const entries = text.split("\n").map((line) => ({
+        id: `lab-log-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
+        createdAt,
+        source,
+        message: line
+    }));
+    modelLabRuntime.logEntries.push(...entries);
+    if (modelLabRuntime.logEntries.length > 600) {
+        modelLabRuntime.logEntries = modelLabRuntime.logEntries.slice(-600);
+    }
+}
+function serializeModelLabRuntime() {
+    return {
+        running: modelLabRuntime.running,
+        startedAt: modelLabRuntime.startedAt || 0,
+        finishedAt: modelLabRuntime.finishedAt || 0,
+        currentRun: modelLabRuntime.currentRun || null,
+        lastResult: modelLabRuntime.lastResult || null,
+        logEntries: modelLabRuntime.logEntries.slice(-240)
+    };
+}
+function pushWeightUnlearningLog(source, message) {
+    const text = String(message || "")
+        .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
+        .replace(/\r/g, "")
+        .trim();
+    if (!text) {
+        return;
+    }
+    const createdAt = Date.now();
+    const entries = text.split("\n").map((line) => ({
+        id: `weight-log-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
+        createdAt,
+        source,
+        message: line
+    }));
+    weightUnlearningRuntime.logEntries.push(...entries);
+    if (weightUnlearningRuntime.logEntries.length > 800) {
+        weightUnlearningRuntime.logEntries = weightUnlearningRuntime.logEntries.slice(-800);
+    }
+}
+function serializeWeightUnlearningRuntime() {
+    return {
+        running: weightUnlearningRuntime.running,
+        phase: weightUnlearningRuntime.phase || "",
+        startedAt: weightUnlearningRuntime.startedAt || 0,
+        finishedAt: weightUnlearningRuntime.finishedAt || 0,
+        currentJob: weightUnlearningRuntime.currentJob || null,
+        lastResult: weightUnlearningRuntime.lastResult || null,
+        logEntries: weightUnlearningRuntime.logEntries.slice(-240)
+    };
+}
+async function collectModelLabPresets() {
+    const presetsPath = getModelLabPresetsPath();
+    if (!(await pathExists(presetsPath))) {
+        return [];
+    }
+    try {
+        const raw = await fs.readFile(presetsPath, "utf8");
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed?.presets) ? parsed.presets : [];
+    }
+    catch {
+        return [];
+    }
+}
+async function saveModelLabPresets(presets) {
+    const presetsPath = getModelLabPresetsPath();
+    await fs.mkdir(path.dirname(presetsPath), { recursive: true });
+    await fs.writeFile(presetsPath, JSON.stringify({ presets }, null, 2), "utf8");
+}
+async function collectStagedTrainingSamples() {
+    const stagedPath = getModelLabStagedSamplesPath();
+    if (!(await pathExists(stagedPath))) {
+        return [];
+    }
+    try {
+        const raw = await fs.readFile(stagedPath, "utf8");
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed?.stagedSamples) ? parsed.stagedSamples : [];
+    }
+    catch {
+        return [];
+    }
+}
+async function saveStagedTrainingSamples(stagedSamples) {
+    const stagedPath = getModelLabStagedSamplesPath();
+    await fs.mkdir(path.dirname(stagedPath), { recursive: true });
+    await fs.writeFile(stagedPath, JSON.stringify({ stagedSamples }, null, 2), "utf8");
+}
+async function collectWeightUnlearningDatasets(limit = 12) {
+    const root = path.join(getWeightUnlearningRoot(), "datasets");
+    if (!(await pathExists(root))) {
+        return [];
+    }
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    const datasets = [];
+    for (const entry of entries) {
+        if (!entry.isDirectory())
+            continue;
+        const manifestPath = path.join(root, entry.name, "manifest.json");
+        if (!(await pathExists(manifestPath)))
+            continue;
+        try {
+            const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+            datasets.push({
+                id: entry.name,
+                datasetName: String(manifest.datasetName || entry.name),
+                root: path.join(root, entry.name),
+                createdAt: Number(new Date(manifest.createdAt || 0)) || 0,
+                counts: manifest.counts || {}
+            });
+        }
+        catch {
+        }
+    }
+    return datasets.sort((left, right) => right.createdAt - left.createdAt).slice(0, limit);
+}
+async function collectWeightUnlearningRuns(limit = 12) {
+    const root = path.join(getWeightUnlearningRoot(), "runs");
+    if (!(await pathExists(root))) {
+        return [];
+    }
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    const runs = [];
+    for (const entry of entries) {
+        if (!entry.isDirectory())
+            continue;
+        const runRoot = path.join(root, entry.name);
+        const configPath = path.join(runRoot, "config.json");
+        if (!(await pathExists(configPath)))
+            continue;
+        try {
+            const configJson = JSON.parse(await fs.readFile(configPath, "utf8"));
+            const trainingSummaryPath = path.join(configJson.adapterOutputDir, "training-summary.json");
+            const mergeSummaryPath = path.join(configJson.mergedOutputDir, "merge-summary.json");
+            const evalSummaryPath = configJson.evalOutputPath || path.join(runRoot, "eval-results.json");
+            runs.push({
+                id: entry.name,
+                runRoot,
+                createdAt: Number(new Date(configJson.createdAt || 0)) || 0,
+                baseModelPath: String(configJson.baseModelPath || ""),
+                datasetRoot: String(configJson.datasetRoot || ""),
+                adapterOutputDir: String(configJson.adapterOutputDir || ""),
+                mergedOutputDir: String(configJson.mergedOutputDir || ""),
+                configPath,
+                phases: {
+                    trained: await pathExists(trainingSummaryPath),
+                    merged: await pathExists(mergeSummaryPath),
+                    evaluated: await pathExists(evalSummaryPath)
+                }
+            });
+        }
+        catch {
+        }
+    }
+    return runs.sort((left, right) => right.createdAt - left.createdAt).slice(0, limit);
+}
+function summarizeModelInfo(details) {
+    const info = details?.model_info && typeof details.model_info === "object"
+        ? details.model_info
+        : {};
+    const entries = Object.entries(info)
+        .filter(([, value]) => value !== undefined && value !== null && value !== "")
+        .slice(0, 14)
+        .map(([key, value]) => ({
+        key,
+        value: typeof value === "number" ? String(value) : String(value)
+    }));
+    return entries;
+}
+function firstNonEmptyLine(value) {
+    return String(value || "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find(Boolean) || "";
+}
+async function collectNeutralizationRuns(limit = 12) {
+    const root = getNeutralizationRoot();
+    if (!(await pathExists(root))) {
+        return [];
+    }
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    const runs = [];
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        const runDir = path.join(root, entry.name);
+        try {
+            const planRaw = await fs.readFile(path.join(runDir, "plan.json"), "utf8");
+            const evalRaw = await fs.readFile(path.join(runDir, "eval-suite.json"), "utf8");
+            const modelfile = await fs.readFile(path.join(runDir, "Modelfile"), "utf8");
+            const plan = JSON.parse(planRaw);
+            const evalSuite = JSON.parse(evalRaw);
+            runs.push({
+                id: entry.name,
+                runDir,
+                createdAt: Number(new Date(plan.createdAt || 0)) || 0,
+                baseModel: String(plan.baseModel || ""),
+                derivedName: String(plan.derivedName || ""),
+                style: String(plan.style || ""),
+                traitsToSuppress: Array.isArray(plan.traitsToSuppress) ? plan.traitsToSuppress : [],
+                createRequested: Boolean(plan.createRequested),
+                evalPromptCount: Array.isArray(evalSuite?.prompts) ? evalSuite.prompts.length : 0,
+                modelfilePreview: firstNonEmptyLine(modelfile.split("SYSTEM")[0] || modelfile)
+            });
+        }
+        catch {
+        }
+    }
+    return runs
+        .sort((left, right) => right.createdAt - left.createdAt)
+        .slice(0, limit);
+}
+async function collectTrainingSamples(limit = 20) {
+    const root = getModelLabRoot();
+    const samplesPath = path.join(root, "training-samples.jsonl");
+    if (!(await pathExists(samplesPath))) {
+        return [];
+    }
+    const raw = await fs.readFile(samplesPath, "utf8");
+    return raw
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+        try {
+            return JSON.parse(line);
+        }
+        catch {
+            return null;
+        }
+    })
+        .filter(Boolean)
+        .slice(-limit)
+        .reverse();
+}
+function extractJsonObject(raw) {
+    const trimmed = String(raw || "").trim();
+    const match = trimmed.match(/\{[\s\S]*\}$/);
+    if (!match) {
+        return null;
+    }
+    try {
+        return JSON.parse(match[0]);
+    }
+    catch {
+        return null;
+    }
+}
+async function getModelLabStatus() {
+    const models = await getProviderModels();
+    const providerStatus = await getProviderStatus();
+    const ollamaModels = Array.isArray(models.ollama) ? models.ollama : [];
+    const selectedBaseModel = ollamaModels[0] || "";
+    const baseModelDetails = selectedBaseModel
+        ? await postJson(`${runtimeSettings.ollamaBaseUrl.replace(/\/$/, "")}/api/show`, { name: selectedBaseModel, verbose: true }).catch((error) => ({
+            error: describeError(error)
+        }))
+        : null;
+    const runs = await collectNeutralizationRuns();
+    const trainingSamples = await collectTrainingSamples();
+    const presets = await collectModelLabPresets();
+    const stagedSamples = await collectStagedTrainingSamples();
+    const weightUnlearningDatasets = await collectWeightUnlearningDatasets();
+    const weightUnlearningRuns = await collectWeightUnlearningRuns();
+    const timeline = dashboardStore.getState().activity
+        .filter((entry) => String(entry.source || "").toLowerCase() === "model-lab")
+        .slice()
+        .sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0))
+        .slice(0, 16)
+        .map((entry) => ({
+        id: String(entry.id || `${entry.createdAt || 0}:${entry.title || "event"}`),
+        createdAt: Number(entry.createdAt || 0),
+        title: String(entry.title || "Model Lab event"),
+        detail: String(entry.detail || ""),
+        status: String(entry.status || "info")
+    }));
+    const latestSample = trainingSamples[0] || null;
+    return {
+        generatedAt: Date.now(),
+        providerStatus,
+        models,
+        neutralization: {
+            baseModel: selectedBaseModel,
+            baseModelInfo: baseModelDetails?.error ? [] : summarizeModelInfo(baseModelDetails),
+            baseModelError: baseModelDetails?.error || "",
+            templatePreview: baseModelDetails?.error ? "" : firstNonEmptyLine(baseModelDetails?.template || baseModelDetails?.modelfile || ""),
+            systemPreview: baseModelDetails?.error ? "" : firstNonEmptyLine(baseModelDetails?.system || ""),
+            latestRun: runs[0] || null,
+            recentRuns: runs
+        },
+        runtime: serializeModelLabRuntime(),
+        weightUnlearning: {
+            runtime: serializeWeightUnlearningRuntime(),
+            datasets: weightUnlearningDatasets,
+            runs: weightUnlearningRuns
+        },
+        summaries: {
+            neutralization: {
+                status: modelLabRuntime.running
+                    ? "running"
+                    : modelLabRuntime.lastResult?.ok === false
+                        ? "failed"
+                        : runs[0]
+                            ? "ready"
+                            : "idle",
+                title: modelLabRuntime.running
+                    ? `Neutralizing ${modelLabRuntime.currentRun?.derivedName || "model"}`
+                    : runs[0]
+                        ? `Latest reset: ${runs[0].derivedName}`
+                        : "No reset run yet",
+                detail: modelLabRuntime.running
+                    ? `${(modelLabRuntime.currentRun?.traits || []).length || 0} trait pathway${((modelLabRuntime.currentRun?.traits || []).length || 0) === 1 ? "" : "s"} targeted.`
+                    : runs[0]
+                        ? `${(runs[0].traitsToSuppress || []).length || 0} stripped trait pathway${((runs[0].traitsToSuppress || []).length || 0) === 1 ? "" : "s"} | ${runs[0].evalPromptCount || 0} eval prompts.`
+                        : "Choose a base model and highlight the memory or identity pathways to remove."
+            },
+            reintroduction: {
+                status: stagedSamples.length ? "staged" : latestSample ? "ready" : "idle",
+                title: stagedSamples.length
+                    ? `${stagedSamples.length} staged reintroduction example${stagedSamples.length === 1 ? "" : "s"}`
+                    : latestSample
+                        ? `Latest reintroduction: ${latestSample.label || "manual-sample"}`
+                        : "No reintroduction staged yet",
+                detail: stagedSamples.length
+                    ? "Review the staged payload, then commit it into the training dataset."
+                    : latestSample
+                        ? `Dataset contains ${trainingSamples.length} saved example${trainingSamples.length === 1 ? "" : "s"}.`
+                        : "Stage a trigger, response, and reason before committing it into the dataset."
+            }
+        },
+        presets,
+        stagedSamples,
+        timeline,
+        trainingSamples
+    };
 }
 function hasTool(agent, tool) {
     return Boolean(agent && agent.tools.includes(tool));
@@ -184,15 +1221,6 @@ async function readPackageScripts(cwd) {
     }
     catch {
         return {};
-    }
-}
-async function pathExists(targetPath) {
-    try {
-        await fs.access(targetPath);
-        return true;
-    }
-    catch {
-        return false;
     }
 }
 async function runVerification(agent, task) {
@@ -723,6 +1751,13 @@ function shouldIncludeWorkspaceNote(relativePath) {
         || normalized.includes("/notes/")
         || normalized.includes("/tasks/");
 }
+function prefixWorkspaceIndexItems(items, prefix) {
+    return items.map((item) => ({
+        ...item,
+        path: `${prefix}/${item.path}`.replace(/\/+/g, "/"),
+        folder: item.folder === "." ? prefix : `${prefix}/${item.folder}`.replace(/\/+/g, "/")
+    }));
+}
 async function buildWorkspaceIndex(rootPath, matcher, currentPath = rootPath, results = []) {
     let entries;
     try {
@@ -757,6 +1792,33 @@ async function buildWorkspaceIndex(rootPath, matcher, currentPath = rootPath, re
         catch { }
     }
     return results;
+}
+async function deleteWorkspacePaths(pathsToDelete) {
+    const deleted = [];
+    for (const relativePath of pathsToDelete) {
+        const normalized = String(relativePath || "").replace(/\\/g, "/");
+        if (!normalized) {
+            continue;
+        }
+        const usingControlPrefix = normalized.startsWith("__control__/");
+        const baseRoot = usingControlPrefix ? config.controlRoot : config.projectRoot;
+        const strippedPath = usingControlPrefix ? normalized.slice("__control__/".length) : normalized;
+        const absolutePath = path.resolve(baseRoot, strippedPath);
+        const relativeToRoot = path.relative(baseRoot, absolutePath);
+        if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+            continue;
+        }
+        try {
+            const stats = await fs.stat(absolutePath);
+            if (!stats.isFile()) {
+                continue;
+            }
+            await fs.unlink(absolutePath);
+            deleted.push(normalized);
+        }
+        catch { }
+    }
+    return deleted;
 }
 async function generateAutonomyTasks(agent, chat, searchHits) {
     const prompt = [
@@ -816,19 +1878,26 @@ function agentPromptContext(agent, mode) {
     if (!agent)
         return "";
     const dashboardState = dashboardStore.getState();
+    const persona = agent.personaId ? personaRegistry.get(agent.personaId) : null;
     const assignedTasks = dashboardState.tasks
         .filter((task) => task.agentId === agent.id && task.status !== "done")
         .map((task) => `- ${task.title} [${task.status}]${task.detail ? `: ${task.detail}` : ""}`);
     return [
         `Assigned agent: ${agent.name}`,
         `Role: ${agent.role}`,
+        persona?.label ? `Persona: ${persona.label}` : "",
+        persona?.targetLayer ? `Target layer: ${persona.targetLayer}` : "",
+        persona?.voice ? `Persona voice: ${persona.voice}` : "",
         `Workspace folder: ${agent.workspacePath}`,
         `Attached tools: ${agent.tools.join(", ") || "none"}`,
         `Specialized skills: ${agent.skills.join(", ") || "none"}`,
+        "Exploration protocol: when the path is unclear, identify unknowns, propose 2-3 options, run the safest useful prototype, capture what changed, and feed the result back into tasks and notes.",
+        "Strategic horizon: build the current browser experience as phase one of a future immersive world stack that may later include persistent realtime systems and a downloadable client.",
         dashboardState.projectBrief ? `Shared project brief: ${dashboardState.projectBrief}` : "",
         assignedTasks.length ? `Assigned tasks:\n${assignedTasks.join("\n")}` : "",
         agent.repoBranch ? `Preferred git branch: ${agent.repoBranch}` : "",
         agent.notes ? `Agent directives: ${agent.notes}` : "",
+        persona?.promptAddendum ? `Persona directives: ${persona.promptAddendum}` : "",
         mode ? `UI environment: ${mode}` : ""
     ].filter(Boolean).join("\n");
 }
@@ -899,15 +1968,19 @@ async function executeAgentPrompt(agentId, prompt, mode = "dispatch") {
     if (!agent) {
         throw new Error("agent not found");
     }
+    const persona = agent.personaId ? personaRegistry.get(agent.personaId) : null;
+    const resolvedModel = agent.usePersonaModel && persona?.model
+        ? persona.model
+        : (agent.model || runtimeSettings.models[agent.role === "executive" ? "executive" : agent.role === "coder" ? "coder" : "fast"]);
     const titles = agentActivityTitles(agent.name, mode);
     await recordAgentActivity(agent, mode, "working", titles.start, prompt.slice(0, 320));
     const agentConfig = {
         ...teamRegistry.buildAgentConfig(agent.id),
         provider: agent.provider,
         models: {
-            executive: agent.model || runtimeSettings.models.executive,
-            coder: agent.model || runtimeSettings.models.coder,
-            fast: agent.model || runtimeSettings.models.fast
+            executive: resolvedModel || runtimeSettings.models.executive,
+            coder: resolvedModel || runtimeSettings.models.coder,
+            fast: resolvedModel || runtimeSettings.models.fast
         },
         ollamaBaseUrl: runtimeSettings.ollamaBaseUrl,
         openClawBaseUrl: runtimeSettings.openClawBaseUrl
@@ -948,7 +2021,7 @@ async function ensureDefaultGroupChat() {
             existing.messages.unshift({
                 id: "msg-core-team-seed",
                 role: "system",
-                author: "KiraDex",
+                author: "Kirapolis",
                 content: "Closed Loop is ready. Every agent contributes to the evolving PARKSystems environment through shared rooms, files, artifacts, and review cycles.",
                 createdAt: Date.now()
             });
@@ -964,7 +2037,7 @@ async function ensureDefaultGroupChat() {
                 {
                     id: "msg-core-team-seed",
                     role: "system",
-                    author: "KiraDex",
+                    author: "Kirapolis",
                     content: "Closed Loop is ready. Every agent contributes to the evolving PARKSystems environment through shared rooms, files, artifacts, and review cycles.",
                     createdAt: Date.now()
                 }
@@ -975,6 +2048,229 @@ async function ensureDefaultGroupChat() {
     }
     state.messenger.activeChatId = state.messenger.activeChatId || "group-core-team";
     await dashboardStore.setMessengerState(state.messenger);
+}
+async function ensureNamedGroupChat(chatId, title, memberIds, seedMessage) {
+    const state = dashboardStore.getState();
+    const uniqueMembers = Array.from(new Set((memberIds || []).filter(Boolean)));
+    const existing = state.messenger.chats.find((chat) => chat.id === chatId);
+    if (existing) {
+        existing.type = "group";
+        existing.title = title;
+        existing.members = uniqueMembers;
+        existing.origin = "system";
+        if (!Array.isArray(existing.messages)) {
+            existing.messages = [];
+        }
+        if (seedMessage && !existing.messages.some((message) => message.id === `${chatId}-seed`)) {
+            existing.messages.unshift({
+                id: `${chatId}-seed`,
+                role: "system",
+                author: "Kirapolis",
+                content: seedMessage,
+                createdAt: Date.now()
+            });
+        }
+    }
+    else {
+        state.messenger.chats.unshift({
+            id: chatId,
+            type: "group",
+            title,
+            members: uniqueMembers,
+            messages: seedMessage
+                ? [{
+                        id: `${chatId}-seed`,
+                        role: "system",
+                        author: "Kirapolis",
+                        content: seedMessage,
+                        createdAt: Date.now()
+                    }]
+                : [],
+            lastReadAt: 0,
+            origin: "system"
+        });
+    }
+    await dashboardStore.setMessengerState(state.messenger);
+    return state.messenger.chats.find((chat) => chat.id === chatId) || null;
+}
+function getPostDeployAgentIds() {
+    return [
+        "agent-ceo",
+        "agent-manager",
+        "agent-qa",
+        "agent-github",
+        "agent-postdeploy-monitor",
+        "agent-visual-analyst"
+    ].filter((agentId) => Boolean(teamRegistry.get(agentId)));
+}
+async function ensurePostDeployGroupChat() {
+    return await ensureNamedGroupChat("group-post-deploy", "Post Deploy", getPostDeployAgentIds(), "Post Deploy is ready. Railway events, runtime failures, and visual release checks will be routed here for fast triage.");
+}
+async function ensurePostDeploySpecialists() {
+    const specs = [
+        {
+            id: "agent-postdeploy-monitor",
+            name: "Post Deploy Monitor",
+            role: "runner",
+            provider: "ollama",
+            tools: ["workspace-read", "exec", "planning", "web"],
+            skills: ["deployment", "runtime-monitoring", "incident-triage", "release-readiness", "log-analysis", "railway-ops", "handoff-reporting"],
+            notes: "Monitors post-deployment health, deployment incidents, Railway webhook reports, and runtime regressions, then relays concrete findings back to the team."
+        },
+        {
+            id: "agent-visual-analyst",
+            name: "Post Deploy Visual Analyst",
+            role: "runner",
+            provider: "ollama",
+            tools: ["workspace-read", "planning", "web", "exec"],
+            skills: ["visual-qa", "ux-regression-review", "cross-device-auditing", "release-readiness", "playability-review", "screenshot-analysis"],
+            notes: "Checks the deployed experience visually after release, looks for layout regressions and broken journeys, and reports what changed in plain language for the team."
+        }
+    ];
+    for (const spec of specs) {
+        await teamRegistry.upsert(spec);
+    }
+    await progressionStore.ensureAgents(teamRegistry.list());
+}
+function summarizeRailwayPayload(payload) {
+    const eventType = String(payload?.event || payload?.type || payload?.action || payload?.trigger || "event").trim() || "event";
+    const status = String(payload?.status || payload?.deployment?.status || payload?.state || payload?.result || "").toLowerCase();
+    const environment = String(payload?.environment || payload?.deployment?.environment || payload?.service?.environment || "production");
+    const service = String(payload?.service || payload?.serviceName || payload?.deployment?.service || payload?.project || payload?.projectName || "Railway service");
+    const deploymentId = String(payload?.deploymentId || payload?.deployment?.id || payload?.id || "");
+    const url = String(payload?.url || payload?.deployment?.url || payload?.deploymentUrl || payload?.serviceUrl || "");
+    const errorMessage = String(payload?.error?.message || payload?.message || payload?.detail || payload?.reason || "").trim();
+    const failed = /(fail|error|crash|rollback|canceled|cancelled|degraded)/i.test(`${eventType} ${status} ${errorMessage}`);
+    const succeeded = /(success|complete|ready|healthy|deployed|finish)/i.test(`${eventType} ${status}`) && !failed;
+    return {
+        eventType,
+        status,
+        environment,
+        service,
+        deploymentId,
+        url,
+        errorMessage,
+        failed,
+        succeeded
+    };
+}
+async function createOrRefreshPostDeployTask(taskId, agentId, title, detail, status = "todo") {
+    if (!agentId || !teamRegistry.get(agentId)) {
+        return;
+    }
+    await dashboardStore.upsertTask({
+        id: taskId,
+        title,
+        detail,
+        status,
+        agentId
+    });
+}
+async function relayPostDeployAgent(agentId, prompt, chatId) {
+    const agent = teamRegistry.get(agentId);
+    if (!agent) {
+        return null;
+    }
+    try {
+        const execution = await executeAgentPrompt(agent.id, prompt, "dispatch");
+        await appendChatMessageById(chatId, {
+            role: "assistant",
+            author: agent.name,
+            content: execution.result.content || "No response returned.",
+            createdAt: Date.now()
+        });
+        return execution.result.content || "";
+    }
+    catch (error) {
+        await dashboardStore.addFailure(agent.id, `Post-deploy relay failed for ${agent.name}`, describeError(error));
+        return null;
+    }
+}
+async function relayPostDeploySummaryToCoreTeam(summary, postDeployChatId, monitorReply, visualReply) {
+    const coreTeamChatId = "group-core-team";
+    const messageParts = [
+        `Post-deploy ${summary.failed ? "incident" : summary.succeeded ? "check-in" : "update"} for ${summary.service}.`,
+        ``,
+        `Status: ${summary.status || "unknown"} | Environment: ${summary.environment}${summary.deploymentId ? ` | Deployment: ${summary.deploymentId}` : ""}${summary.url ? ` | URL: ${summary.url}` : ""}`
+    ];
+    if (summary.errorMessage) {
+        messageParts.push(`Detail: ${summary.errorMessage}`);
+    }
+    messageParts.push(`Incident room: ${postDeployChatId}`);
+    if (monitorReply) {
+        messageParts.push("", `Monitor`, monitorReply);
+    }
+    if (visualReply) {
+        messageParts.push("", `Visual`, visualReply);
+    }
+    await appendChatMessageById(coreTeamChatId, {
+        role: "system",
+        author: "Post Deploy Relay",
+        content: messageParts.join("\n"),
+        createdAt: Date.now()
+    });
+}
+async function handleRailwayDeploymentEvent(payload) {
+    const summary = summarizeRailwayPayload(payload);
+    const postDeployChat = await ensurePostDeployGroupChat();
+    const detailParts = [
+        `Event: ${summary.eventType}`,
+        `Status: ${summary.status || "unknown"}`,
+        `Environment: ${summary.environment}`,
+        `Service: ${summary.service}`,
+        summary.deploymentId ? `Deployment: ${summary.deploymentId}` : "",
+        summary.url ? `URL: ${summary.url}` : "",
+        summary.errorMessage ? `Detail: ${summary.errorMessage}` : ""
+    ].filter(Boolean);
+    const detailText = detailParts.join(" | ");
+    if (summary.failed) {
+        await dashboardStore.addFailure("railway", `Railway ${summary.eventType} failed for ${summary.service}`, detailText);
+    }
+    await dashboardStore.addActivity({
+        source: "railway",
+        agentId: "",
+        agentName: "Railway",
+        status: summary.failed ? "issue" : summary.succeeded ? "done" : "info",
+        title: summary.failed
+            ? `Railway failure: ${summary.service}`
+            : summary.succeeded
+                ? `Railway deploy healthy: ${summary.service}`
+                : `Railway update: ${summary.service}`,
+        detail: detailText
+    });
+    await appendChatMessageById(postDeployChat?.id || "group-post-deploy", {
+        role: "system",
+        author: "Railway",
+        content: `${summary.failed ? "Deployment issue detected." : summary.succeeded ? "Deployment update received." : "Railway event received."}\n\n${detailText}`,
+        createdAt: Date.now()
+    });
+    const monitorTaskTitle = summary.failed ? `Investigate Railway issue in ${summary.service}` : `Confirm post-deploy health for ${summary.service}`;
+    const monitorTaskDetail = `${detailText}\n\nRelay the concrete technical status back into Post Deploy.`;
+    await createOrRefreshPostDeployTask(`postdeploy-monitor-${summary.deploymentId || summary.service}`, "agent-postdeploy-monitor", monitorTaskTitle, monitorTaskDetail, summary.failed ? "doing" : "todo");
+    if (summary.url) {
+        const visualTaskTitle = `Visually audit ${summary.service}`;
+        const visualTaskDetail = `${detailText}\n\nOpen ${summary.url} and report layout, UX, navigation, or rendering regressions after deployment.`;
+        await createOrRefreshPostDeployTask(`postdeploy-visual-${summary.deploymentId || summary.service}`, "agent-visual-analyst", visualTaskTitle, visualTaskDetail, "todo");
+    }
+    const monitorPrompt = [
+        "You are handling a post-deployment monitoring event.",
+        "Summarize the event, identify the most likely technical concern, and tell the team the next action in 3 short sections: Signal, Risk, Next Step.",
+        `Event summary: ${detailText}`,
+        summary.failed ? "Treat this as an incident until proven otherwise." : "Treat this as a release verification pass."
+    ].join("\n\n");
+    const monitorReply = await relayPostDeployAgent("agent-postdeploy-monitor", monitorPrompt, postDeployChat?.id || "group-post-deploy");
+    let visualReply = "";
+    if (summary.url) {
+        const visualPrompt = [
+            "You are the post-deployment visual analyst.",
+            "Describe the visual audit plan for this deployment in 3 short sections: What to check, likely regressions, and what the team should verify first.",
+            `Deployment URL: ${summary.url}`,
+            `Event summary: ${detailText}`
+        ].join("\n\n");
+        visualReply = (await relayPostDeployAgent("agent-visual-analyst", visualPrompt, postDeployChat?.id || "group-post-deploy")) || "";
+    }
+    await relayPostDeploySummaryToCoreTeam(summary, postDeployChat?.id || "group-post-deploy", monitorReply || "", visualReply);
+    return summary;
 }
 async function runAgentGroupCycle(agent, chat, cycleIndex) {
     const cycleStamp = `${Date.now()}-${cycleIndex}`;
@@ -1051,6 +2347,7 @@ async function runAgentGroupCycle(agent, chat, cycleIndex) {
             status: "done",
             agentId: agent.id
         });
+        await awardAgentTaskCompletion(agent.id, taskId, `${task.title}\n${task.detail}\n${output}`);
     }
     const postSearchTerms = deriveSearchTerms(executionOutputs.join("\n"), preSearchTerms);
     await setAgentPresence(agent.id, "waiting");
@@ -1299,6 +2596,17 @@ class TeamHeartbeat {
     }
 }
 app.use(express.json({ limit: "4mb" }));
+app.use("/experience/project", express.static(config.projectRoot, { index: "index.html", extensions: ["html"] }));
+app.get("/experience/project", (_req, res) => {
+    return res.sendFile(path.join(config.projectRoot, "index.html"));
+});
+app.use("/experience/office", express.static(path.join(config.controlRoot, "apps", "desktop", "src", "office"), { index: "index.html", extensions: ["html"] }));
+app.get("/experience/office", (_req, res) => {
+    return res.sendFile(path.join(config.controlRoot, "apps", "desktop", "src", "office", "index.html"));
+});
+app.get("/app", (_req, res) => {
+    return res.sendFile(path.join(config.controlRoot, "apps", "desktop", "src", "index.html"));
+});
 app.get("/health", (_req, res) => {
     res.json({
         ok: true,
@@ -1311,6 +2619,209 @@ app.get("/health", (_req, res) => {
         openClawBaseUrl: runtimeSettings.openClawBaseUrl,
         memory: baseBrain.getStats()
     });
+});
+app.get("/api/integrations/railway/status", (_req, res) => {
+    const webhookPath = "/api/integrations/railway/webhook";
+    const manualPath = "/api/post-deploy/analyze";
+    return res.json({
+        ok: true,
+        enabled: true,
+        secretConfigured: Boolean(config.railwayWebhookSecret),
+        publicBaseUrl: config.publicBaseUrl,
+        webhookPath,
+        manualPath,
+        webhookUrl: `${config.publicBaseUrl}${webhookPath}`,
+        manualUrl: `${config.publicBaseUrl}${manualPath}`,
+        roomId: "group-post-deploy",
+        specialistAgentIds: ["agent-postdeploy-monitor", "agent-visual-analyst"]
+    });
+});
+app.post("/api/integrations/railway/webhook", async (req, res) => {
+    try {
+        const configuredSecret = String(config.railwayWebhookSecret || "").trim();
+        const providedSecret = String(req.headers["x-kira-secret"] || req.headers["x-kirapolis-secret"] || req.headers["x-railway-signature"] || "").trim();
+        if (configuredSecret && configuredSecret !== providedSecret) {
+            return res.status(401).json({ error: "invalid railway webhook secret" });
+        }
+        const summary = await handleRailwayDeploymentEvent(req.body || {});
+        return res.json({ ok: true, summary });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/post-deploy/analyze", async (req, res) => {
+    const schema = z.object({
+        url: z.string().optional(),
+        service: z.string().optional(),
+        environment: z.string().optional(),
+        event: z.string().optional(),
+        status: z.string().optional(),
+        detail: z.string().optional(),
+        deploymentId: z.string().optional()
+    });
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const summary = await handleRailwayDeploymentEvent({
+            event: parsed.data.event || "manual-post-deploy-check",
+            status: parsed.data.status || "queued",
+            environment: parsed.data.environment || "production",
+            service: parsed.data.service || "manual deployment",
+            deploymentId: parsed.data.deploymentId || "",
+            url: parsed.data.url || "",
+            detail: parsed.data.detail || "Manual post-deployment check requested from Kirapolis."
+        });
+        return res.json({ ok: true, summary });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.get("/api/remote/bootstrap", async (_req, res) => {
+    const desktopSettings = await loadSharedDesktopSettings();
+    return res.json({
+        workspaceRoot: config.controlRoot,
+        controlRoot: config.controlRoot,
+        websiteProjectPath: desktopSettings.websiteProjectPath || config.projectRoot,
+        deployProfile: {
+            projectPath: desktopSettings.deployProjectPath || desktopSettings.websiteProjectPath || config.projectRoot,
+            buildCommand: desktopSettings.deployBuildCommand || "",
+            deployCommand: desktopSettings.deployCommand || ""
+        },
+        agentUrl: `http://127.0.0.1:${config.port}`,
+        experienceUrl: `/experience/project/`,
+        officeUrl: `/experience/office/`,
+        agentLog: "Remote browser mode is connected directly to the Kira agent service.",
+        remoteUrls: getReachableUrls()
+    });
+});
+app.get("/api/remote/system-status", async (_req, res) => {
+    const providerStatus = await getProviderStatus();
+    const providerProbes = providerStatus?.providers || {};
+    return res.json({
+        agentProcessRunning: true,
+        workspaceRoot: config.controlRoot,
+        controlRoot: config.controlRoot,
+        websiteProjectPath: config.projectRoot,
+        agentUrl: `http://127.0.0.1:${config.port}`,
+        experienceUrl: `/experience/project/`,
+        officeUrl: `/experience/office/`,
+        remoteUrls: getReachableUrls(),
+        probes: {
+            backend: {
+                ok: true,
+                url: `http://127.0.0.1:${config.port}/health`,
+                detail: "reachable"
+            },
+            ollama: providerProbes.ollama || { ok: false, detail: "not reported" },
+            openclaw: providerProbes.openclaw || { ok: false, detail: "not reported" }
+        }
+    });
+});
+app.get("/api/system/launch-readiness", async (_req, res) => {
+    try {
+        const desktopSettings = await loadSharedDesktopSettings();
+        const providerStatus = await getProviderStatus();
+        const signals = await buildExperienceSignals();
+        const repo = await collectRepoSummary(config.projectRoot);
+        return res.json({
+            generatedAt: Date.now(),
+            autonomy: teamHeartbeat.getStatus(),
+            repo,
+            director: signals.directorMode,
+            summary: signals.summary,
+            remoteUrls: getReachableUrls(),
+            providerStatus,
+            websiteProjectPath: desktopSettings.websiteProjectPath || config.projectRoot
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/system/backup", async (_req, res) => {
+    try {
+        const manifest = await createSystemBackupSnapshot();
+        await dashboardStore.addActivity({
+            agentId: "system",
+            title: "System backup snapshot created",
+            detail: manifest.backupRoot,
+            source: "system",
+            status: "done"
+        });
+        return res.json({ ok: true, ...manifest });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/remote/settings", async (req, res) => {
+    const schema = z.object({
+        websiteProjectPath: z.string().optional(),
+        deployProjectPath: z.string().optional(),
+        deployBuildCommand: z.string().optional(),
+        deployCommand: z.string().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        return res.json(await saveSharedDesktopSettings(parsed.data));
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.all("/api/proxy", async (req, res) => {
+    const target = String(req.query.target || "").trim();
+    const targetPath = String(req.query.path || "").trim();
+    const baseUrl = target === "ollama"
+        ? runtimeSettings.ollamaBaseUrl
+        : target === "openclaw"
+            ? runtimeSettings.openClawBaseUrl
+            : "";
+    const proxyMethod = String(req.method || "GET").toUpperCase();
+    const allowedProxyPaths = target === "ollama"
+        ? {
+            GET: new Set(["/api/tags", "/api/ps", "/api/version"]),
+            POST: new Set(["/api/show", "/api/generate", "/api/chat", "/api/embed", "/api/embeddings"])
+        }
+        : target === "openclaw"
+            ? {
+                GET: new Set(["/v1/models"]),
+                POST: new Set(["/v1/chat/completions"])
+            }
+            : { GET: new Set(), POST: new Set() };
+    if (!baseUrl || !targetPath.startsWith("/")) {
+        return res.status(400).json({ error: "invalid proxy target" });
+    }
+    if (!allowedProxyPaths[proxyMethod]?.has(targetPath)) {
+        return res.status(405).json({ error: "proxy path not allowed" });
+    }
+    try {
+        const response = await fetch(`${baseUrl.replace(/\/$/, "")}${targetPath}`, {
+            method: proxyMethod,
+            headers: {
+                "content-type": "application/json"
+            },
+            body: proxyMethod === "GET" || proxyMethod === "HEAD" ? undefined : JSON.stringify(req.body || {})
+        });
+        const text = await response.text();
+        res.status(response.status);
+        try {
+            return res.json(JSON.parse(text));
+        }
+        catch {
+            return res.send(text);
+        }
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
 });
 app.get("/api/settings", (_req, res) => {
     res.json({
@@ -1337,6 +2848,605 @@ app.get("/api/providers/models", async (_req, res) => {
     }
     catch (error) {
         return res.status(500).json({ error: error instanceof Error ? error.message : "unknown error" });
+    }
+});
+app.get("/api/model-lab/status", async (_req, res) => {
+    try {
+        return res.json(await getModelLabStatus());
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.get("/api/model-lab/log", (_req, res) => {
+    return res.json(serializeModelLabRuntime());
+});
+app.get("/api/model-lab/weight-unlearning/status", async (_req, res) => {
+    try {
+        return res.json((await getModelLabStatus()).weightUnlearning);
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+async function startWeightUnlearningProcess({ phase, command, args, cwd, currentJob, successTitle, successDetail }) {
+    if (weightUnlearningRuntime.running) {
+        throw new Error("a weight-unlearning job is already running");
+    }
+    weightUnlearningRuntime.running = true;
+    weightUnlearningRuntime.phase = phase;
+    weightUnlearningRuntime.startedAt = Date.now();
+    weightUnlearningRuntime.finishedAt = 0;
+    weightUnlearningRuntime.currentJob = currentJob;
+    weightUnlearningRuntime.logEntries = [];
+    weightUnlearningRuntime.lastResult = null;
+    pushWeightUnlearningLog("system", `${phase} started.`);
+    const child = spawn(command, args, {
+        cwd,
+        env: process.env,
+        shell: false
+    });
+    weightUnlearningRuntime.process = child;
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+        const text = String(chunk || "");
+        stdout += text;
+        pushWeightUnlearningLog("stdout", text);
+    });
+    child.stderr?.on("data", (chunk) => {
+        const text = String(chunk || "");
+        stderr += text;
+        pushWeightUnlearningLog("stderr", text);
+    });
+    child.on("error", (error) => {
+        const detail = describeError(error);
+        weightUnlearningRuntime.running = false;
+        weightUnlearningRuntime.finishedAt = Date.now();
+        weightUnlearningRuntime.process = null;
+        weightUnlearningRuntime.lastResult = {
+            ok: false,
+            code: 1,
+            stdout,
+            stderr: `${stderr}${stderr ? "\n" : ""}${detail}`
+        };
+        pushWeightUnlearningLog("error", detail);
+    });
+    child.on("close", (code) => {
+        weightUnlearningRuntime.running = false;
+        weightUnlearningRuntime.finishedAt = Date.now();
+        weightUnlearningRuntime.process = null;
+        weightUnlearningRuntime.lastResult = {
+            ok: (code ?? 0) === 0,
+            code: code ?? 0,
+            stdout,
+            stderr
+        };
+        pushWeightUnlearningLog((code ?? 0) === 0 ? "system" : "error", (code ?? 0) === 0
+            ? `${phase} finished.`
+            : `${phase} failed with exit code ${code ?? 0}.`);
+        void dashboardStore.addActivity({
+            source: "model-lab",
+            agentId: "system",
+            agentName: "Weight Unlearning",
+            status: (code ?? 0) === 0 ? "done" : "blocked",
+            title: (code ?? 0) === 0 ? successTitle : `${phase} failed`,
+            detail: (code ?? 0) === 0 ? successDetail : (stderr || stdout || "No details.")
+        });
+    });
+}
+app.post("/api/model-lab/chat", async (req, res) => {
+    const schema = z.object({
+        model: z.string().min(1),
+        message: z.string().min(1),
+        stage: z.enum(["before", "during", "after"]).optional(),
+        style: z.string().optional(),
+        traits: z.array(z.string()).optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    const stage = parsed.data.stage || "before";
+    const traits = (parsed.data.traits || []).filter(Boolean).join(", ");
+    const system = [
+        stage === "before"
+            ? "Respond as the model in its current state before neutralization."
+            : stage === "during"
+                ? "Respond as a model currently being neutralized. Be explicit about what style/persona traits are being suppressed."
+                : "Respond as the neutralized model after reset. Stay clear, neutral, and task-focused.",
+        parsed.data.style ? `Target style: ${parsed.data.style}` : "",
+        traits ? `Traits being removed or suppressed: ${traits}.` : "",
+        "Be honest about uncertainty and avoid claiming hidden memories."
+    ].filter(Boolean).join("\n");
+    try {
+        const response = await postJson(`${runtimeSettings.ollamaBaseUrl.replace(/\/$/, "")}/api/chat`, {
+            model: parsed.data.model,
+            stream: false,
+            messages: [
+                { role: "system", content: system },
+                { role: "user", content: parsed.data.message }
+            ]
+        });
+        return res.json({
+            ok: true,
+            stage,
+            model: parsed.data.model,
+            response: String(response?.message?.content || response?.response || "").trim()
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/model-lab/neutralize", async (req, res) => {
+    const schema = z.object({
+        baseModel: z.string().min(1),
+        derivedName: z.string().min(1),
+        style: z.string().min(1),
+        traits: z.array(z.string()).default([]),
+        create: z.boolean().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        if (modelLabRuntime.running) {
+            return res.status(409).json({
+                error: "a neutralization run is already in progress",
+                status: await getModelLabStatus()
+            });
+        }
+        const args = [
+            path.join(config.controlRoot, "scripts", "neutralize-ollama-model.mjs"),
+            "--base-model",
+            parsed.data.baseModel,
+            "--derived-name",
+            parsed.data.derivedName,
+            "--style",
+            parsed.data.style,
+            "--traits",
+            (parsed.data.traits || []).join(", ")
+        ];
+        if (parsed.data.create) {
+            args.push("--create");
+        }
+        const startedAt = Date.now();
+        modelLabRuntime.running = true;
+        modelLabRuntime.startedAt = startedAt;
+        modelLabRuntime.finishedAt = 0;
+        modelLabRuntime.currentRun = {
+            baseModel: parsed.data.baseModel,
+            derivedName: parsed.data.derivedName,
+            style: parsed.data.style,
+            traits: parsed.data.traits || [],
+            create: Boolean(parsed.data.create)
+        };
+        modelLabRuntime.logEntries = [];
+        modelLabRuntime.lastResult = null;
+        pushModelLabLog("system", `Starting neutralization for ${parsed.data.derivedName}.`);
+        pushModelLabLog("system", `Base model: ${parsed.data.baseModel}`);
+        pushModelLabLog("system", `Traits to remove: ${(parsed.data.traits || []).join(", ") || "none specified"}`);
+        const child = spawn("node", args, {
+            cwd: config.controlRoot,
+            env: process.env,
+            shell: false
+        });
+        modelLabRuntime.process = child;
+        let stdout = "";
+        let stderr = "";
+        child.stdout?.on("data", (chunk) => {
+            const text = String(chunk || "");
+            stdout += text;
+            pushModelLabLog("stdout", text);
+        });
+        child.stderr?.on("data", (chunk) => {
+            const text = String(chunk || "");
+            stderr += text;
+            pushModelLabLog("stderr", text);
+        });
+        child.on("error", (error) => {
+            const detail = describeError(error);
+            stderr = `${stderr}${stderr ? "\n" : ""}${detail}`;
+            modelLabRuntime.running = false;
+            modelLabRuntime.finishedAt = Date.now();
+            modelLabRuntime.process = null;
+            modelLabRuntime.lastResult = {
+                ok: false,
+                code: 1,
+                stdout,
+                stderr,
+                run: null
+            };
+            pushModelLabLog("error", detail);
+            void dashboardStore.addActivity({
+                source: "model-lab",
+                agentId: "system",
+                agentName: "Model Lab",
+                status: "blocked",
+                title: "Neutralization run failed",
+                detail
+            });
+        });
+        child.on("close", (code) => {
+            const parsedJson = extractJsonObject(stdout);
+            modelLabRuntime.running = false;
+            modelLabRuntime.finishedAt = Date.now();
+            modelLabRuntime.process = null;
+            modelLabRuntime.lastResult = {
+                ok: (code ?? 0) === 0,
+                code: code ?? 0,
+                stdout,
+                stderr,
+                run: parsedJson
+            };
+            pushModelLabLog((code ?? 0) === 0 ? "system" : "error", (code ?? 0) === 0
+                ? `Neutralization finished for ${parsed.data.derivedName}.`
+                : `Neutralization failed with exit code ${code ?? 0}.`);
+            void dashboardStore.addActivity({
+                source: "model-lab",
+                agentId: "system",
+                agentName: "Model Lab",
+                status: (code ?? 0) === 0 ? "done" : "blocked",
+                title: (code ?? 0) === 0 ? "Neutralization run created" : "Neutralization run failed",
+                detail: parsedJson?.runDir || stderr || stdout || "No details."
+            });
+        });
+        return res.json({
+            ok: true,
+            started: true,
+            run: {
+                ...modelLabRuntime.currentRun,
+                startedAt
+            },
+            status: await getModelLabStatus()
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/model-lab/presets", async (req, res) => {
+    const schema = z.object({
+        id: z.string().optional(),
+        label: z.string().min(1),
+        model: z.string().min(1),
+        notes: z.string().optional(),
+        sourceRunDir: z.string().optional(),
+        style: z.string().optional(),
+        traits: z.array(z.string()).optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const presets = await collectModelLabPresets();
+        const id = parsed.data.id || `preset-${Date.now()}`;
+        const nextPreset = {
+            id,
+            label: parsed.data.label.trim(),
+            model: parsed.data.model.trim(),
+            notes: parsed.data.notes || "",
+            sourceRunDir: parsed.data.sourceRunDir || "",
+            style: parsed.data.style || "",
+            traits: parsed.data.traits || [],
+            updatedAt: Date.now(),
+            createdAt: presets.find((entry) => entry.id === id)?.createdAt || Date.now()
+        };
+        const next = [
+            nextPreset,
+            ...presets.filter((entry) => entry.id !== id)
+        ].slice(0, 100);
+        await saveModelLabPresets(next);
+        await dashboardStore.addActivity({
+            source: "model-lab",
+            agentId: "system",
+            agentName: "Model Lab",
+            status: "done",
+            title: "Model preset saved",
+            detail: `${nextPreset.label} -> ${nextPreset.model}`
+        });
+        return res.json({
+            ok: true,
+            preset: nextPreset,
+            presets: next
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/model-lab/weight-unlearning/dataset", async (req, res) => {
+    const schema = z.object({
+        sourceRoot: z.string().min(1),
+        datasetName: z.string().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const result = await runCommand("node", [
+            path.join(config.controlRoot, "scripts", "build-weight-unlearning-dataset.mjs"),
+            "--source-root",
+            parsed.data.sourceRoot,
+            ...(parsed.data.datasetName?.trim() ? ["--dataset-name", parsed.data.datasetName.trim()] : [])
+        ], config.controlRoot);
+        if (result.code !== 0) {
+            return res.status(500).json({ error: result.stderr || result.stdout || "dataset build failed" });
+        }
+        await dashboardStore.addActivity({
+            source: "model-lab",
+            agentId: "system",
+            agentName: "Weight Unlearning",
+            status: "done",
+            title: "Weight unlearning dataset built",
+            detail: parsed.data.sourceRoot
+        });
+        return res.json({
+            ok: true,
+            result: extractJsonObject(result.stdout),
+            status: (await getModelLabStatus()).weightUnlearning
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/model-lab/weight-unlearning/prepare", async (req, res) => {
+    const schema = z.object({
+        datasetRoot: z.string().min(1),
+        baseModelPath: z.string().min(1)
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const result = await runCommand("node", [
+            path.join(config.controlRoot, "scripts", "prepare-weight-unlearning.mjs"),
+            "--dataset-root",
+            parsed.data.datasetRoot,
+            "--base-model-path",
+            parsed.data.baseModelPath
+        ], config.controlRoot);
+        if (result.code !== 0) {
+            return res.status(500).json({ error: result.stderr || result.stdout || "job prepare failed" });
+        }
+        const payload = extractJsonObject(result.stdout);
+        await dashboardStore.addActivity({
+            source: "model-lab",
+            agentId: "system",
+            agentName: "Weight Unlearning",
+            status: "done",
+            title: "Weight unlearning job prepared",
+            detail: payload?.runRoot || parsed.data.datasetRoot
+        });
+        return res.json({ ok: true, result: payload, status: (await getModelLabStatus()).weightUnlearning });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/model-lab/weight-unlearning/train", async (req, res) => {
+    const schema = z.object({
+        configPath: z.string().min(1)
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        await startWeightUnlearningProcess({
+            phase: "train",
+            command: "python",
+            args: [path.join(config.controlRoot, "scripts", "run-weight-unlearning.py"), "--config", parsed.data.configPath],
+            cwd: config.controlRoot,
+            currentJob: { configPath: parsed.data.configPath },
+            successTitle: "Weight unlearning train completed",
+            successDetail: parsed.data.configPath
+        });
+        return res.json({ ok: true, started: true, status: (await getModelLabStatus()).weightUnlearning });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/model-lab/weight-unlearning/merge", async (req, res) => {
+    const schema = z.object({
+        configPath: z.string().min(1)
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        await startWeightUnlearningProcess({
+            phase: "merge",
+            command: "python",
+            args: [path.join(config.controlRoot, "scripts", "merge-weight-unlearning.py"), "--config", parsed.data.configPath],
+            cwd: config.controlRoot,
+            currentJob: { configPath: parsed.data.configPath },
+            successTitle: "Weight unlearning merge completed",
+            successDetail: parsed.data.configPath
+        });
+        return res.json({ ok: true, started: true, status: (await getModelLabStatus()).weightUnlearning });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/model-lab/weight-unlearning/eval", async (req, res) => {
+    const schema = z.object({
+        configPath: z.string().min(1),
+        modelPath: z.string().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const configRaw = JSON.parse(await fs.readFile(parsed.data.configPath, "utf8"));
+        const modelPath = parsed.data.modelPath?.trim() || configRaw.mergedOutputDir;
+        await startWeightUnlearningProcess({
+            phase: "eval",
+            command: "python",
+            args: [path.join(config.controlRoot, "scripts", "eval-weight-unlearning.py"), "--config", parsed.data.configPath, "--model-path", modelPath],
+            cwd: config.controlRoot,
+            currentJob: { configPath: parsed.data.configPath, modelPath },
+            successTitle: "Weight unlearning evaluation completed",
+            successDetail: modelPath
+        });
+        return res.json({ ok: true, started: true, status: (await getModelLabStatus()).weightUnlearning });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/model-lab/reintroduction/stage", async (req, res) => {
+    const schema = z.object({
+        input: z.string().min(1),
+        output: z.string().min(1),
+        notes: z.string().optional(),
+        label: z.string().optional(),
+        weight: z.number().min(0).max(10).optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const stagedSamples = await collectStagedTrainingSamples();
+        const entry = {
+            id: `staged-${Date.now()}`,
+            createdAt: Date.now(),
+            label: parsed.data.label || "staged-example",
+            weight: Number(parsed.data.weight || 1),
+            notes: parsed.data.notes || "",
+            input: parsed.data.input,
+            output: parsed.data.output
+        };
+        const next = [entry, ...stagedSamples].slice(0, 40);
+        await saveStagedTrainingSamples(next);
+        await dashboardStore.addActivity({
+            source: "model-lab",
+            agentId: "system",
+            agentName: "Model Lab",
+            status: "info",
+            title: "Reintroduction example staged",
+            detail: `${entry.label} is ready for dataset commit.`
+        });
+        return res.json({ ok: true, entry, stagedSamples: next, status: await getModelLabStatus() });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/model-lab/reintroduction/commit", async (req, res) => {
+    const schema = z.object({
+        stageId: z.string().optional(),
+        input: z.string().optional(),
+        output: z.string().optional(),
+        notes: z.string().optional(),
+        label: z.string().optional(),
+        weight: z.number().min(0).max(10).optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const stagedSamples = await collectStagedTrainingSamples();
+        const stagedMatch = parsed.data.stageId
+            ? stagedSamples.find((entry) => entry.id === parsed.data.stageId) || null
+            : null;
+        const source = stagedMatch || {
+            id: `sample-${Date.now()}`,
+            createdAt: Date.now(),
+            label: parsed.data.label || "manual-sample",
+            weight: Number(parsed.data.weight || 1),
+            notes: parsed.data.notes || "",
+            input: parsed.data.input || "",
+            output: parsed.data.output || ""
+        };
+        if (!String(source.input || "").trim() || !String(source.output || "").trim()) {
+            return res.status(400).json({ error: "input and output are required" });
+        }
+        const root = getModelLabRoot();
+        const samplesPath = path.join(root, "training-samples.jsonl");
+        await fs.mkdir(root, { recursive: true });
+        const entry = {
+            ...source,
+            id: `sample-${Date.now()}`,
+            committedAt: Date.now()
+        };
+        await fs.appendFile(samplesPath, `${JSON.stringify(entry)}\n`, "utf8");
+        const remaining = stagedMatch ? stagedSamples.filter((item) => item.id !== stagedMatch.id) : stagedSamples;
+        await saveStagedTrainingSamples(remaining);
+        await dashboardStore.addActivity({
+            source: "model-lab",
+            agentId: "system",
+            agentName: "Model Lab",
+            status: "done",
+            title: "Reintroduction example committed",
+            detail: `${entry.label} moved into the training dataset.`
+        });
+        return res.json({
+            ok: true,
+            entry,
+            stagedSamples: remaining,
+            samples: await collectTrainingSamples(),
+            status: await getModelLabStatus()
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/model-lab/training-samples", async (req, res) => {
+    const schema = z.object({
+        input: z.string().min(1),
+        output: z.string().min(1),
+        notes: z.string().optional(),
+        label: z.string().optional(),
+        weight: z.number().min(0).max(10).optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const root = getModelLabRoot();
+        const samplesPath = path.join(root, "training-samples.jsonl");
+        await fs.mkdir(root, { recursive: true });
+        const entry = {
+            id: `sample-${Date.now()}`,
+            createdAt: Date.now(),
+            label: parsed.data.label || "manual-sample",
+            weight: Number(parsed.data.weight || 1),
+            notes: parsed.data.notes || "",
+            input: parsed.data.input,
+            output: parsed.data.output
+        };
+        await fs.appendFile(samplesPath, `${JSON.stringify(entry)}\n`, "utf8");
+        await dashboardStore.addActivity({
+            source: "model-lab",
+            agentId: "system",
+            agentName: "Model Lab",
+            status: "done",
+            title: "Training sample captured",
+            detail: `${entry.label} saved with weight ${entry.weight}.`
+        });
+        return res.json({
+            ok: true,
+            entry,
+            samples: await collectTrainingSamples()
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
     }
 });
 app.post("/api/settings", (req, res) => {
@@ -1383,6 +3493,58 @@ app.post("/api/settings", (req, res) => {
 app.get("/api/dashboard", (_req, res) => {
     res.json(dashboardStore.getState());
 });
+app.get("/api/team/progression", (_req, res) => {
+    const agents = teamRegistry.list();
+    res.json({
+        progression: progressionStore.listForAgents(agents),
+        formula: getLevelFormulaText()
+    });
+});
+app.get("/api/team/office", async (_req, res) => {
+    try {
+        return res.json(await buildOfficeSnapshot());
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.get("/api/experience/signals", async (_req, res) => {
+    try {
+        return res.json(await buildExperienceSignals());
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/team/progression/promote", async (req, res) => {
+    const schema = z.object({
+        agentId: z.string().min(1),
+        stars: z.number().min(1).max(3)
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    const agent = teamRegistry.get(parsed.data.agentId);
+    if (!agent) {
+        return res.status(404).json({ error: "agent not found" });
+    }
+    try {
+        const progression = await progressionStore.setStars(agent, parsed.data.stars);
+        await dashboardStore.addActivity({
+            source: "promotion",
+            agentId: agent.id,
+            agentName: agent.name,
+            status: "done",
+            title: `${agent.name} promotion updated`,
+            detail: `${agent.name} is now at ${progression.stars} star${progression.stars === 1 ? "" : "s"} and level ${progression.level}.`
+        });
+        return res.json({ ok: true, progression });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
 app.post("/api/dashboard/brief", async (req, res) => {
     const schema = z.object({
         projectBrief: z.string()
@@ -1412,7 +3574,12 @@ app.post("/api/dashboard/tasks", async (req, res) => {
         return res.status(400).json({ error: "invalid request" });
     }
     try {
-        return res.json(await dashboardStore.upsertTask(parsed.data));
+        const previous = parsed.data.id ? dashboardStore.getState().tasks.find((task) => task.id === parsed.data.id) : null;
+        const nextState = await dashboardStore.upsertTask(parsed.data);
+        if (parsed.data.status === "done" && previous?.status !== "done" && parsed.data.agentId) {
+            await awardAgentTaskCompletion(parsed.data.agentId, parsed.data.id || "", `${parsed.data.title}\n${parsed.data.detail || ""}`);
+        }
+        return res.json(nextState);
     }
     catch (error) {
         return res.status(500).json({ error: describeError(error) });
@@ -1475,14 +3642,62 @@ app.post("/api/dashboard/activity/clear", async (_req, res) => {
 });
 app.post("/api/sandbox/wipe", async (_req, res) => {
     try {
+        const heartbeatStatus = teamHeartbeat.getStatus();
+        const learningStatus = learningLoop.getStatus();
         learningLoop.stop();
         teamHeartbeat.stop();
         await dashboardStore.resetAll();
         await teamRegistry.wipeSandbox();
+        await resumeAutomationAfterReset({ heartbeatStatus, learningStatus });
         return res.json({
             ok: true,
-            detail: "Sandbox wiped. Chats, dashboard state, and agent memory databases were cleared."
+            detail: "Sandbox wiped. Chats, dashboard state, and agent memory databases were cleared, and the default team was restored."
         });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/system/reset", async (req, res) => {
+    const schema = z.object({
+        scope: z.enum(["files", "notes", "memory", "environment"])
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        if (parsed.data.scope === "files") {
+            const items = await buildWorkspaceIndex(config.projectRoot, shouldIncludeWorkspaceFile);
+            const deleted = await deleteWorkspacePaths(items.map((item) => item.path));
+            return res.json({ ok: true, scope: "files", deleted: deleted.length, detail: `Deleted ${deleted.length} workspace files.` });
+        }
+        if (parsed.data.scope === "notes") {
+            const projectItems = await buildWorkspaceIndex(config.projectRoot, shouldIncludeWorkspaceNote);
+            const controlItems = config.controlRoot !== config.projectRoot
+                ? prefixWorkspaceIndexItems(await buildWorkspaceIndex(config.controlRoot, shouldIncludeWorkspaceNote), "__control__")
+                : [];
+            const deleted = await deleteWorkspacePaths([...projectItems, ...controlItems].map((item) => item.path));
+            return res.json({ ok: true, scope: "notes", deleted: deleted.length, detail: `Deleted ${deleted.length} notes.` });
+        }
+        if (parsed.data.scope === "memory") {
+            await teamRegistry.resetMemories();
+            return res.json({ ok: true, scope: "memory", detail: "Agent memory databases were cleared." });
+        }
+        const heartbeatStatus = teamHeartbeat.getStatus();
+        const learningStatus = learningLoop.getStatus();
+        const fileItems = await buildWorkspaceIndex(config.projectRoot, shouldIncludeWorkspaceFile);
+        const projectNotes = await buildWorkspaceIndex(config.projectRoot, shouldIncludeWorkspaceNote);
+        const controlNotes = config.controlRoot !== config.projectRoot
+            ? prefixWorkspaceIndexItems(await buildWorkspaceIndex(config.controlRoot, shouldIncludeWorkspaceNote), "__control__")
+            : [];
+        const deleted = await deleteWorkspacePaths([...fileItems, ...projectNotes, ...controlNotes].map((item) => item.path));
+        await teamRegistry.resetMemories();
+        learningLoop.stop();
+        teamHeartbeat.stop();
+        await dashboardStore.resetAll();
+        await resumeAutomationAfterReset({ heartbeatStatus, learningStatus });
+        return res.json({ ok: true, scope: "environment", deleted: deleted.length, detail: `Environment wiped. Deleted ${deleted.length} files and notes, and cleared chats plus memory.` });
     }
     catch (error) {
         return res.status(500).json({ error: describeError(error) });
@@ -1542,7 +3757,115 @@ app.post("/api/messenger", async (req, res) => {
     }
 });
 app.get("/api/team/agents", (_req, res) => {
-    res.json({ agents: teamRegistry.list() });
+    res.json({ agents: listAgentsWithProgression() });
+});
+app.post("/api/team/agents", async (req, res) => {
+    const schema = z.object({
+        id: z.string().optional(),
+        name: z.string().optional(),
+        role: z.enum(["executive", "coder", "runner"]).optional(),
+        lotId: z.string().optional(),
+        posX: z.number().optional(),
+        posY: z.number().optional(),
+        provider: z.enum(["ollama", "openclaw"]).optional(),
+        model: z.string().optional(),
+        tools: z.array(z.string()).optional(),
+        skills: z.array(z.string()).optional(),
+        notes: z.string().optional(),
+        lastBrief: z.string().optional(),
+        lastResponse: z.string().optional(),
+        state: z.string().optional(),
+        presence: z.string().optional(),
+        workspacePath: z.string().optional(),
+        repoBranch: z.string().optional(),
+        memoryPath: z.string().optional(),
+        personaId: z.string().optional(),
+        usePersonaModel: z.boolean().optional(),
+        isManager: z.boolean().optional(),
+        createdAt: z.number().optional(),
+        updatedAt: z.number().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    if (parsed.data.personaId && !personaRegistry.get(parsed.data.personaId)) {
+        return res.status(400).json({ error: "persona not found" });
+    }
+    try {
+        const agent = await teamRegistry.upsert(parsed.data);
+        await progressionStore.ensureAgents(teamRegistry.list());
+        return res.json({ ok: true, agent: withProgression(agent) });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.delete("/api/team/agents/:agentId", async (req, res) => {
+    const agentId = String(req.params.agentId || "");
+    if (!agentId) {
+        return res.status(400).json({ error: "agent id required" });
+    }
+    try {
+        const removed = await teamRegistry.remove(agentId);
+        if (!removed) {
+            return res.status(404).json({ error: "agent not found" });
+        }
+        await progressionStore.remove(agentId);
+        return res.json({ ok: true });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.get("/api/personas", (_req, res) => {
+    res.json({ personas: personaRegistry.list() });
+});
+app.post("/api/personas", async (req, res) => {
+    const schema = z.object({
+        id: z.string().optional(),
+        label: z.string().min(1),
+        baseRole: z.enum(["executive", "coder", "runner"]).optional(),
+        targetLayer: z.string().optional(),
+        description: z.string().optional(),
+        voice: z.string().optional(),
+        promptAddendum: z.string().optional(),
+        model: z.string().optional(),
+        trainingProfileId: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+        createdAt: z.number().optional(),
+        updatedAt: z.number().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const persona = await personaRegistry.upsert(parsed.data);
+        return res.json({ ok: true, persona });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.delete("/api/personas/:personaId", async (req, res) => {
+    const personaId = String(req.params.personaId || "");
+    if (!personaId) {
+        return res.status(400).json({ error: "persona id required" });
+    }
+    if (teamRegistry.list().some((agent) => agent.personaId === personaId)) {
+        return res.status(400).json({ error: "persona is still assigned to one or more agents" });
+    }
+    try {
+        const removed = await personaRegistry.remove(personaId);
+        if (!removed) {
+            return res.status(404).json({ error: "persona not found" });
+        }
+        return res.json({ ok: true });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
 });
 app.post("/api/team/snapshot", async (req, res) => {
     const schema = z.object({
@@ -1565,6 +3888,8 @@ app.post("/api/team/snapshot", async (req, res) => {
             workspacePath: z.string().optional(),
             repoBranch: z.string().optional(),
             memoryPath: z.string().optional(),
+            personaId: z.string().optional(),
+            usePersonaModel: z.boolean().optional(),
             isManager: z.boolean().optional(),
             createdAt: z.number().optional(),
             updatedAt: z.number().optional()
@@ -1584,6 +3909,30 @@ app.post("/api/team/snapshot", async (req, res) => {
 });
 app.get("/api/team-heartbeat/status", (_req, res) => {
     res.json(teamHeartbeat.getStatus());
+});
+app.get("/api/autonomy", (_req, res) => {
+    res.json(teamHeartbeat.getStatus());
+});
+app.post("/api/autonomy", async (req, res) => {
+    const schema = z.object({
+        active: z.boolean(),
+        intervalMs: z.number().int().min(15000).max(3600000).optional(),
+        maxAgentsPerCycle: z.number().int().min(1).max(64).optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        if (parsed.data.active) {
+            const current = teamHeartbeat.getStatus();
+            return res.json(await teamHeartbeat.start(parsed.data.intervalMs || current.intervalMs || 60000, parsed.data.maxAgentsPerCycle || current.maxAgentsPerCycle || 8));
+        }
+        return res.json(teamHeartbeat.stop());
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
 });
 app.post("/api/team-heartbeat/start", async (req, res) => {
     const schema = z.object({
@@ -1758,7 +4107,7 @@ app.post("/api/learning/start", async (req, res) => {
         await dashboardStore.addActivity({
             source: "learning",
             agentId: "",
-            agentName: "KIRA",
+            agentName: "Kirapolis",
             status: "working",
             title: "Learning loop started",
             detail: `${status.topic} | interval ${status.intervalMs}ms`
@@ -1774,7 +4123,7 @@ app.post("/api/learning/stop", (_req, res) => {
     void dashboardStore.addActivity({
         source: "learning",
         agentId: "",
-        agentName: "KIRA",
+        agentName: "Kirapolis",
         status: "info",
         title: "Learning loop stopped",
         detail: status.topic ? `Last topic: ${status.topic}` : "No active topic."
@@ -1878,7 +4227,11 @@ app.get("/api/workspace/files/index", async (_req, res) => {
 });
 app.get("/api/workspace/notes/index", async (_req, res) => {
     try {
-        const items = await buildWorkspaceIndex(config.projectRoot, shouldIncludeWorkspaceNote);
+        const projectItems = await buildWorkspaceIndex(config.projectRoot, shouldIncludeWorkspaceNote);
+        const controlItems = config.controlRoot !== config.projectRoot
+            ? prefixWorkspaceIndexItems(await buildWorkspaceIndex(config.controlRoot, shouldIncludeWorkspaceNote), "__control__")
+            : [];
+        const items = [...projectItems, ...controlItems];
         return res.json({
             root: config.projectRoot,
             items: items.sort((left, right) => right.updatedAt - left.updatedAt)
@@ -1896,27 +4249,7 @@ app.post("/api/workspace/delete", async (req, res) => {
     if (!parsed.success) {
         return res.status(400).json({ error: "invalid request" });
     }
-    const deleted = [];
-    for (const relativePath of parsed.data.paths) {
-        const normalized = String(relativePath || "").replace(/\\/g, "/");
-        if (!normalized) {
-            continue;
-        }
-        const absolutePath = path.resolve(config.projectRoot, normalized);
-        const relativeToRoot = path.relative(config.projectRoot, absolutePath);
-        if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
-            return res.status(400).json({ error: "path outside workspace" });
-        }
-        try {
-            const stats = await fs.stat(absolutePath);
-            if (!stats.isFile()) {
-                continue;
-            }
-            await fs.unlink(absolutePath);
-            deleted.push(normalized);
-        }
-        catch { }
-    }
+    const deleted = await deleteWorkspacePaths(parsed.data.paths);
     return res.json({ ok: true, deleted });
 });
 app.post("/api/workspace/write", async (req, res) => {
@@ -1943,10 +4276,18 @@ app.post("/api/workspace/write", async (req, res) => {
     }
 });
 await baseBrain.init();
+await personaRegistry.init();
 await teamRegistry.init();
+await progressionStore.init();
+await ensurePostDeploySpecialists();
+await progressionStore.ensureAgents(teamRegistry.list());
 await dashboardStore.init();
+for (const task of dashboardStore.getState().tasks.filter((entry) => entry.status === "done" && entry.agentId)) {
+    await awardAgentTaskCompletion(task.agentId, task.id, `${task.title}\n${task.detail || ""}`);
+}
 await migrateLegacyGroupArtifacts();
 await ensureDefaultGroupChat();
+await ensurePostDeployGroupChat();
 const managerAgent = teamRegistry.list().find((agent) => agent.isManager);
 const managerBrain = managerAgent ? await teamRegistry.getBrain(managerAgent.id) : baseBrain;
 learningLoop = new KiraLearningLoop(() => ({ ...config, ...runtimeSettings }), managerBrain);

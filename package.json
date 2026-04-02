@@ -1,18 +1,30 @@
 {
-  "name": "kiradex",
+  "name": "kirapolis",
   "version": "0.1.0",
   "private": true,
-  "description": "KiraDex control plane for local website teams. Agents build only in C:\\parks\\web\\newpark.",
+  "description": "Kirapolis control plane for local website teams.",
   "workspaces": [
     "apps/*",
     "services/*",
     "extensions/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @kiradex/agent --workspace @kiradex/desktop",
-    "typecheck": "npm run typecheck --workspace @kiradex/agent --workspace @kiradex/desktop",
+    "build": "npm run build --workspace @kirapolis/agent --workspace @kirapolis/desktop",
+    "typecheck": "npm run typecheck --workspace @kirapolis/agent --workspace @kirapolis/desktop",
     "start": "npm run build && electron apps/desktop/dist/main.js",
-    "start:agent": "npm run build --workspace @kiradex/agent && node services/agent/dist/server.js",
-    "clean": "node scripts/clean.mjs"
+    "start:agent": "npm run build --workspace @kirapolis/agent && node services/agent/dist/server.js",
+    "neutralize:model": "node scripts/neutralize-ollama-model.mjs",
+    "unlearning:dataset": "node scripts/build-weight-unlearning-dataset.mjs",
+    "unlearning:prepare": "node scripts/prepare-weight-unlearning.mjs",
+    "unlearning:train": "python scripts/run-weight-unlearning.py",
+    "unlearning:merge": "python scripts/merge-weight-unlearning.py",
+    "unlearning:eval": "python scripts/eval-weight-unlearning.py",
+    "reset:memories": "node scripts/reset-kirapolis-memories.mjs",
+    "personas:build": "node scripts/build-kira-persona-datasets.mjs",
+    "personas:prepare": "node scripts/prepare-kira-finetune.mjs",
+    "personas:create": "node scripts/create-kira-persona.mjs",
+    "agents:create": "node scripts/create-kira-agent.mjs",
+    "clean": "node scripts/clean.mjs",
+    "test:e2e:ui": "node scripts/e2e-kirapolis-ui.mjs"
   }
 }

@@ -80,7 +80,7 @@ export class KiraBrain {
         const mem = this.memoryContext(userMessage);
         const history = this.query(`SELECT role, content FROM messages ORDER BY created_at DESC LIMIT 8`).reverse().map((row) => `${row.role}: ${row.content}`).join("\n");
         return [
-            "You are KIRA, an autonomous AI with persistent SQLite memory and correlation-based learning.",
+            "You are Kirapolis, an autonomous AI with persistent SQLite memory and correlation-based learning.",
             "Operate like a pragmatic software engineer with ongoing memory reinforcement and decay.",
             "Never explain the internal memory mechanism unless explicitly asked.",
             mem ? mem : "",

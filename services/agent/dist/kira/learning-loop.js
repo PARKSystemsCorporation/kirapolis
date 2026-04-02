@@ -63,7 +63,7 @@ export class KiraLearningLoop {
             "1. State one key concept.",
             "2. Explain one mechanism or deeper reason.",
             "3. Identify one uncertainty or question to investigate next.",
-            "4. State one practical takeaway KIRA should retain.",
+            "4. State one practical takeaway Kirapolis should retain.",
             "Do not roleplay autonomy outside this bounded learning task."
         ].join("\n");
         try {
