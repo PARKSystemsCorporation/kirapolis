@@ -93,7 +93,9 @@ Important keys:
 
 ## License
 
-No open-source license has been added in this pass. That keeps rights reserved by default until PARKSystems Corporation decides otherwise.
+This repository is proprietary software owned by PARKSystems Corporation.
+
+See [`LICENSE`](./LICENSE).
 
 ## Ownership
 
