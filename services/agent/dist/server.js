@@ -2681,9 +2681,72 @@ class TeamHeartbeat {
     }
 }
 app.use(express.json({ limit: "4mb" }));
-app.use("/experience/project", express.static(config.projectRoot, { index: "index.html", extensions: ["html"] }));
-app.get("/experience/project", (_req, res) => {
-    return res.sendFile(path.join(config.projectRoot, "index.html"));
+app.use("/experience/project", express.static(config.projectRoot, { index: false, extensions: ["html"] }));
+function renderProjectExperienceFallback() {
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kirapolis Project Preview</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(255,153,51,0.18), transparent 42%),
+        linear-gradient(180deg, #120b07 0%, #070707 100%);
+      color: #f5efe8;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .shell {
+      width: min(720px, 100%);
+      border: 1px solid rgba(255,153,51,0.28);
+      background: rgba(14, 10, 8, 0.9);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.45);
+      border-radius: 24px;
+      padding: 28px;
+    }
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 12px;
+      color: #ffad66;
+      margin-bottom: 10px;
+    }
+    h1 { margin: 0 0 12px; font-size: 30px; line-height: 1.1; }
+    p { color: #d6c3b2; line-height: 1.55; }
+    code {
+      display: inline-block;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 2px 8px;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="eyebrow">Workspace Preview</div>
+    <h1>No project site entrypoint found yet</h1>
+    <p>Kirapolis is serving the workspace root, but <code>${config.projectRoot.replace(/\\/g, "/")}/index.html</code> does not exist.</p>
+    <p>The office background and workspace preview are still available, but the embedded project page will stay on this fallback until you point <code>KIRA_PROJECT_ROOT</code> at a runnable site or add an <code>index.html</code> there.</p>
+  </main>
+</body>
+</html>`;
+}
+app.get(["/experience/project", "/experience/project/"], async (_req, res) => {
+    const projectIndexPath = path.join(config.projectRoot, "index.html");
+    if (await pathExists(projectIndexPath)) {
+        return res.sendFile(projectIndexPath);
+    }
+    return res.status(200).type("html").send(renderProjectExperienceFallback());
 });
 app.use("/experience/office", express.static(path.join(config.controlRoot, "apps", "desktop", "src", "office"), { index: "index.html", extensions: ["html"] }));
 app.get("/experience/office", (_req, res) => {
