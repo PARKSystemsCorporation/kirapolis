@@ -16,6 +16,7 @@ export function getConfig() {
         ollamaBaseUrl: process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434",
         openClawBaseUrl: process.env.OPENCLAW_BASE_URL || "http://127.0.0.1:11434",
         railwayWebhookSecret: process.env.KIRA_RAILWAY_WEBHOOK_SECRET || process.env.RAILWAY_WEBHOOK_SECRET || "",
+        embeddingModel: process.env.KIRA_MODEL_EMBEDDING || process.env.KIRA_EMBED_MODEL || process.env.KIRA_MODEL_FAST || process.env.KIRA_MODEL || "",
         models: {
             executive: process.env.KIRA_MODEL_EXECUTIVE || process.env.KIRA_MODEL || "deepseek-v2.5",
             coder: process.env.KIRA_MODEL_CODER || process.env.KIRA_MODEL || "deepseek-coder-v2",

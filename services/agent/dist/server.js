@@ -1986,7 +1986,20 @@ async function executeAgentPrompt(agentId, prompt, mode = "dispatch") {
         openClawBaseUrl: runtimeSettings.openClawBaseUrl
     };
     const agentBrain = await teamRegistry.getBrain(agent.id);
-    const result = await runKiraChat(agentConfig, agentBrain, [agentPromptContext(agent, mode), prompt].filter(Boolean).join("\n\n"));
+    const activeTaskTitles = dashboardStore.getState().tasks
+        .filter((task) => task.agentId === agent.id && task.status !== "done")
+        .map((task) => String(task.title || "").trim())
+        .filter(Boolean)
+        .slice(0, 8);
+    const result = await runKiraChat(agentConfig, agentBrain, [agentPromptContext(agent, mode), prompt].filter(Boolean).join("\n\n"), {
+        mode,
+        agentId: agent.id,
+        agentName: agent.name,
+        agentRole: agent.role,
+        personaId: agent.personaId || "",
+        taskTitles: activeTaskTitles,
+        prompt
+    });
     let updatedAgent = await teamRegistry.recordDispatch(agent.id, prompt, result.content || "");
     if (result.model && updatedAgent.model !== result.model) {
         updatedAgent = await teamRegistry.upsert({
@@ -4081,7 +4094,10 @@ app.post("/api/chat", async (req, res) => {
         return res.status(400).json({ error: "invalid request" });
     }
     try {
-        const result = await runKiraChat({ ...config, ...runtimeSettings }, baseBrain, parsed.data.prompt);
+        const result = await runKiraChat({ ...config, ...runtimeSettings }, baseBrain, parsed.data.prompt, {
+            mode: "manual-chat",
+            prompt: parsed.data.prompt
+        });
         return res.json(result);
     }
     catch (error) {

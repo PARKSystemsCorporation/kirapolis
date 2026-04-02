@@ -67,7 +67,11 @@ export class KiraLearningLoop {
             "Do not roleplay autonomy outside this bounded learning task."
         ].join("\n");
         try {
-            const result = await runKiraChat(this.getConfig(), this.brain, prompt);
+            const result = await runKiraChat(this.getConfig(), this.brain, prompt, {
+                mode: "learning-loop",
+                topic: this.status.topic,
+                cycle: cycleNumber
+            });
             this.status.cyclesCompleted += 1;
             this.status.lastResult = result.content;
             this.status.lastError = null;

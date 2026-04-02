@@ -31,17 +31,17 @@ async function resolveModel(config, requestedModel) {
     }
     return availableModels[0];
 }
-export async function runKiraChat(config, brain, userPrompt) {
+export async function runKiraChat(config, brain, userPrompt, interactionMetadata = {}) {
     const decision = pickModel(config, userPrompt);
     const selectedModel = await resolveModel(config, decision.model);
-    const systemPrompt = await brain.handleUserMessage(userPrompt);
+    const systemPrompt = await brain.handleUserMessage(userPrompt, interactionMetadata);
     const messages = [
         { role: "system", content: `${SYSTEM_PROMPT}\n\n${systemPrompt}` },
         { role: "user", content: userPrompt }
     ];
     if (config.provider === "openclaw") {
         const content = await chatWithOpenClaw(config.openClawBaseUrl, selectedModel, messages);
-        brain.recordAssistantMessage(content);
+        await brain.recordAssistantMessage(content, interactionMetadata);
         return {
             content,
             model: selectedModel,
@@ -50,7 +50,7 @@ export async function runKiraChat(config, brain, userPrompt) {
         };
     }
     const content = await chatWithOllama(config.ollamaBaseUrl, selectedModel, messages);
-    brain.recordAssistantMessage(content);
+    await brain.recordAssistantMessage(content, interactionMetadata);
     return {
         content,
         model: selectedModel,

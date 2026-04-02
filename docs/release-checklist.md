@@ -20,9 +20,9 @@
 - Update `README.md` if startup steps changed.
 - Verify `.env.example` still matches the code paths in use.
 - Confirm `.gitattributes` still marks generated output correctly.
+- Confirm `LICENSE` remains Apache-2.0 and any new docs match the open-source posture.
 - Sanity-check package names, repo URL, and visible product naming.
 
 ## Optional
 
-- Add a license when PARKSystems Corporation is ready to publish one.
 - Add CI, issue templates, or contribution docs if outside collaborators are expected.
