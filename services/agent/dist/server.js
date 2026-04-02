@@ -2107,7 +2107,7 @@ async function ensureDefaultGroupChat() {
                 id: "msg-core-team-seed",
                 role: "system",
                 author: "Kirapolis",
-                content: "Closed Loop is ready. Every agent contributes to the evolving PARKSystems environment through shared rooms, files, artifacts, and review cycles.",
+                content: "Closed Loop is ready. Every agent contributes to the evolving workspace through shared rooms, files, artifacts, and review cycles.",
                 createdAt: Date.now()
             });
         }
@@ -2123,7 +2123,7 @@ async function ensureDefaultGroupChat() {
                     id: "msg-core-team-seed",
                     role: "system",
                     author: "Kirapolis",
-                    content: "Closed Loop is ready. Every agent contributes to the evolving PARKSystems environment through shared rooms, files, artifacts, and review cycles.",
+                    content: "Closed Loop is ready. Every agent contributes to the evolving workspace through shared rooms, files, artifacts, and review cycles.",
                     createdAt: Date.now()
                 }
             ],

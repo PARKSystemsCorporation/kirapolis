@@ -3419,6 +3419,14 @@
         return `<div class="label">Memory Path</div><div class="sub">Create or select an agent to see its dedicated memory file.</div>`;
       }
       const scopeType = memoryState.scopeType || "all";
+      const statusLabels = {
+        active: "Live",
+        candidate: "Review",
+        pinned: "Pinned",
+        superseded: "Superseded",
+        archived: "Archived",
+        forgotten: "Forgotten"
+      };
       const scopeButtons = ["all", "agent", "project", "room"].map((scope) => `
         <button type="button" class="${scopeType === scope ? "secondary" : ""}" data-memory-scope="${escapeHtml(scope)}">${escapeHtml(scope)}</button>
       `).join("");
@@ -3432,13 +3440,13 @@
             <div class="pill">${escapeHtml(item.kind || "memory")}</div>
           </div>
           <div class="sub">${escapeHtml(compactText(item.detail || item.subject || "", 180))}</div>
-          <div class="sub">${escapeHtml(`${item.scope_type || "agent"}:${item.scope_id || "default"} | ${item.status || "active"} | confidence ${Number(item.confidence || 0).toFixed(2)}`)}</div>
+          <div class="sub">${escapeHtml(`${item.scope_type || "agent"}:${item.scope_id || "default"} | ${statusLabels[item.status || "active"] || item.status || "active"} | confidence ${Number(item.confidence || 0).toFixed(2)}`)}</div>
           <div class="toolbar">
             <button type="button" data-memory-pin="${escapeHtml(item.id)}">${Number(item.pinned || 0) ? "Unpin" : "Pin"}</button>
-            <button type="button" data-memory-status="${escapeHtml(item.id)}" data-next-status="${escapeHtml(item.status === "active" ? "candidate" : "active")}">${item.status === "active" ? "Candidate" : "Activate"}</button>
-            <button type="button" data-memory-forget="${escapeHtml(item.id)}">Forget</button>
+            <button type="button" data-memory-status="${escapeHtml(item.id)}" data-next-status="${escapeHtml(item.status === "active" ? "candidate" : "active")}">${item.status === "active" ? "Mark Review" : "Mark Live"}</button>
+            <button type="button" data-memory-forget="${escapeHtml(item.id)}">Archive</button>
           </div>
-          ${(item.links || []).length ? `<div class="sub">Links: ${escapeHtml((item.links || []).map((link) => `${link.relation}:${(link.from_id === item.id ? link.to_id : link.from_id)}`).join(" | "))}</div>` : ""}
+          ${(item.links || []).length ? `<div class="sub">History: ${escapeHtml((item.links || []).map((link) => `${link.relation}:${(link.from_id === item.id ? link.to_id : link.from_id)}`).join(" | "))}</div>` : ""}
         </div>
       `).join("") : `<div class="empty">No matching memory items for this scope yet.</div>`;
       return `
@@ -3446,6 +3454,7 @@
         <div class="sub mono">${escapeHtml(agent.memoryPath || "Pending initialization")}</div>
         <div class="sub">This memory stays separate even if multiple agents share the same persona.</div>
         ${statLine}
+        <div class="sub">Review live, shared, and room memory here. Pin durable guidance, mark questionable recall for review, or archive stale items.</div>
         <div class="toolbar">${scopeButtons}<button type="button" id="studio-memory-consolidate-btn">Consolidate</button><button type="button" id="studio-memory-episode-btn">Save Episode</button></div>
         <div class="detail-list">${itemsMarkup}</div>
       `;
@@ -4482,7 +4491,7 @@
       const content = [
         brief,
         extra,
-        "Operate as the PARKSystems autonomous website build team with the 2D office as the main control surface.",
+        "Operate as the autonomous website build team with the 2D office as the main control surface.",
         "Read the room, create a concrete task list, execute only inside the configured workspace root, verify work, then post a concise final room update."
       ].filter(Boolean).join("\n\n").trim();
       if (!chat || !content) {

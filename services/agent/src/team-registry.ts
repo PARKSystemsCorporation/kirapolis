@@ -68,7 +68,7 @@ function createSeedAgents(controlRoot, projectRoot, models) {
             role: "executive",
             tools: ["planning", "workspace-read", "web"],
             skills: ["executive-direction", "project-planning", "systems-thinking", "client-communication", "unknown-exploration", "world-strategy", "mmo-roadmapping"],
-            notes: "Sets product direction, evaluates the evolving environment, and keeps the closed-loop system aligned with PARKSystems goals and the long-horizon world platform.",
+            notes: "Sets product direction, evaluates the evolving environment, and keeps the closed-loop system aligned with the project goals and long-horizon world platform.",
             isManager: true
         },
         {
