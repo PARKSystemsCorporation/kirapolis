@@ -1,0 +1,13 @@
+* text=auto
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+
+apps/desktop/dist/** linguist-generated=true
+services/agent/dist/** linguist-generated=true
+
