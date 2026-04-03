@@ -55,6 +55,10 @@ const weightUnlearningRuntime = {
     process: null,
     lastResult: null
 };
+function logStartup(stage, detail = "") {
+    const suffix = detail ? ` | ${detail}` : "";
+    console.log(`[startup] ${stage}${suffix}`);
+}
 function createAccessSessionToken(password) {
     return createHash("sha256").update(`kirapolis:${password}`).digest("hex");
 }
@@ -71,6 +75,12 @@ function getModelLabExecutionLabel() {
     const machine = String(config.modelLabMachineLabel || "this computer").trim();
     return machine ? `local computer (${machine})` : "local computer";
 }
+process.on("uncaughtException", (error) => {
+    console.error("[fatal] uncaughtException", error);
+});
+process.on("unhandledRejection", (reason) => {
+    console.error("[fatal] unhandledRejection", reason);
+});
 app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
@@ -2954,8 +2964,14 @@ app.use("/experience/office", express.static(path.join(config.controlRoot, "apps
 app.get("/experience/office", (_req, res) => {
     return res.sendFile(path.join(config.controlRoot, "apps", "desktop", "src", "office", "index.html"));
 });
+app.get("/", (_req, res) => {
+    return res.redirect(302, "/app");
+});
 app.get("/app", (_req, res) => {
     return res.sendFile(path.join(config.controlRoot, "apps", "desktop", "src", "index.html"));
+});
+app.get("/favicon.ico", (_req, res) => {
+    return res.status(204).end();
 });
 app.get("/health", (_req, res) => {
     res.json({
@@ -5102,31 +5118,72 @@ app.get("/api/notes/frontmatter", async (req, res) => {
 });
 
 // --- end notes layer ---
+async function bootstrapServer() {
+    logStartup("config", `host=${config.host} port=${config.port} runtime=${config.runtimeMode} publicBaseUrl=${config.publicBaseUrl || "(unset)"}`);
+    logStartup("paths", `controlRoot=${config.controlRoot} projectRoot=${config.projectRoot}`);
+    logStartup("providers", `provider=${runtimeSettings.provider} ollama=${runtimeSettings.ollamaBaseUrl} openclaw=${runtimeSettings.openClawBaseUrl}`);
 
-await baseBrain.init();
-await personaRegistry.init();
-await teamRegistry.init();
-await progressionStore.init();
-await ensurePostDeploySpecialists();
-await ensureLocalSpecialists();
-await progressionStore.ensureAgents(teamRegistry.list());
-await dashboardStore.init();
-for (const task of dashboardStore.getState().tasks.filter((entry) => entry.status === "done" && entry.agentId)) {
-    const existing = progressionStore.get(task.agentId);
-    if (existing && existing.rewardTaskIds.includes(String(task.id))) {
-        continue;
+    logStartup("base-brain:init");
+    await baseBrain.init();
+
+    logStartup("persona-registry:init");
+    await personaRegistry.init();
+
+    logStartup("team-registry:init");
+    await teamRegistry.init();
+
+    logStartup("progression-store:init");
+    await progressionStore.init();
+
+    logStartup("specialists:post-deploy");
+    await ensurePostDeploySpecialists();
+
+    logStartup("specialists:local");
+    await ensureLocalSpecialists();
+
+    logStartup("progression-store:ensure-agents", `count=${teamRegistry.list().length}`);
+    await progressionStore.ensureAgents(teamRegistry.list());
+
+    logStartup("dashboard-store:init");
+    await dashboardStore.init();
+
+    logStartup("progression-store:reconcile-completed-tasks", `tasks=${dashboardStore.getState().tasks.length}`);
+    for (const task of dashboardStore.getState().tasks.filter((entry) => entry.status === "done" && entry.agentId)) {
+        const existing = progressionStore.get(task.agentId);
+        if (existing && existing.rewardTaskIds.includes(String(task.id))) {
+            continue;
+        }
+        await awardAgentTaskCompletion(task.agentId, task.id, `${task.title}\n${task.detail || ""}`);
     }
-    await awardAgentTaskCompletion(task.agentId, task.id, `${task.title}\n${task.detail || ""}`);
+
+    logStartup("groups:migrate-legacy-artifacts");
+    await migrateLegacyGroupArtifacts();
+
+    logStartup("rooms:ensure-defaults");
+    await ensureDefaultGroupChat();
+    await ensurePostDeployGroupChat();
+    await ensureLocalWorkbenchGroupChat();
+
+    const managerAgent = teamRegistry.list().find((agent) => agent.isManager);
+    logStartup("manager-brain:select", `manager=${managerAgent?.id || "base-brain"}`);
+    const managerBrain = managerAgent ? await teamRegistry.getBrain(managerAgent.id) : baseBrain;
+
+    logStartup("runtime:constructors");
+    learningLoop = new KiraLearningLoop(() => ({ ...config, ...runtimeSettings }), managerBrain);
+    teamHeartbeat = new TeamHeartbeat();
+
+    logStartup("listen:start");
+    await new Promise((resolve, reject) => {
+        const server = app.listen(config.port, config.host, () => {
+            console.log(`[agent] listening on http://${config.host}:${config.port}`);
+            console.log(`[agent] provider=${runtimeSettings.provider} executive=${runtimeSettings.models.executive} coder=${runtimeSettings.models.coder} fast=${runtimeSettings.models.fast}`);
+            logStartup("listen:ready", `/app and /health available`);
+            resolve(server);
+        });
+        server.on("error", reject);
+    });
 }
-await migrateLegacyGroupArtifacts();
-await ensureDefaultGroupChat();
-await ensurePostDeployGroupChat();
-await ensureLocalWorkbenchGroupChat();
-const managerAgent = teamRegistry.list().find((agent) => agent.isManager);
-const managerBrain = managerAgent ? await teamRegistry.getBrain(managerAgent.id) : baseBrain;
-learningLoop = new KiraLearningLoop(() => ({ ...config, ...runtimeSettings }), managerBrain);
-teamHeartbeat = new TeamHeartbeat();
-app.listen(config.port, config.host, () => {
-    console.log(`[agent] listening on http://${config.host}:${config.port}`);
-    console.log(`[agent] provider=${runtimeSettings.provider} executive=${runtimeSettings.models.executive} coder=${runtimeSettings.models.coder} fast=${runtimeSettings.models.fast}`);
+bootstrapServer().catch((error) => {
+    console.error("[startup] failed", error);
+    process.exitCode = 1;
 });
