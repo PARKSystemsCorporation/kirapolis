@@ -38,7 +38,7 @@
       "usePersonaModel": true,
       "isManager": true,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799205
     },
     {
       "id": "agent-manager",
@@ -77,7 +77,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799205
     },
     {
       "id": "agent-researcher",
@@ -120,7 +120,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799205
     },
     {
       "id": "agent-frontend",
@@ -163,7 +163,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799205
     },
     {
       "id": "agent-backend",
@@ -209,7 +209,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799205
     },
     {
       "id": "agent-threejs",
@@ -256,7 +256,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799206
     },
     {
       "id": "agent-babylon",
@@ -303,7 +303,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799206
     },
     {
       "id": "agent-environment",
@@ -350,7 +350,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799206
     },
     {
       "id": "agent-image",
@@ -395,7 +395,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799206
     },
     {
       "id": "agent-github",
@@ -438,7 +438,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799206
     },
     {
       "id": "agent-maintenance",
@@ -481,7 +481,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799206
     },
     {
       "id": "agent-qa",
@@ -524,7 +524,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199667
+      "updatedAt": 1775175799206
     },
     {
       "id": "agent-postdeploy-monitor",
@@ -568,7 +568,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199668
+      "updatedAt": 1775175799207
     },
     {
       "id": "agent-visual-analyst",
@@ -612,7 +612,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775175199669
+      "updatedAt": 1775175799208
     }
   ]
 }
