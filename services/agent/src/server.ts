@@ -63,6 +63,49 @@ app.use((req, res, next) => {
     }
     next();
 });
+const accessPassword = String(process.env.KIRA_ACCESS_PASSWORD || "").trim();
+if (accessPassword) {
+    app.use((req, res, next) => {
+        if (req.method === "OPTIONS") {
+            return next();
+        }
+        // Allow health check without auth for uptime monitors
+        if (req.path === "/health") {
+            return next();
+        }
+        // Check Authorization header (Basic auth)
+        const authHeader = String(req.headers.authorization || "");
+        if (authHeader.startsWith("Basic ")) {
+            const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf8");
+            const [, password] = decoded.split(":");
+            if (password === accessPassword) {
+                return next();
+            }
+        }
+        // Check query param fallback for simple links
+        if (req.query.token === accessPassword) {
+            return next();
+        }
+        // Check cookie for browser sessions
+        const cookies = String(req.headers.cookie || "");
+        const match = cookies.match(/(?:^|;\s*)kira_token=([^;]*)/);
+        if (match && match[1] === accessPassword) {
+            return next();
+        }
+        // If browser request, show login prompt
+        res.set("WWW-Authenticate", 'Basic realm="Kirapolis"');
+        return res.status(401).send("Authentication required");
+    });
+    // Login endpoint that sets a cookie so the browser stays authenticated
+    app.post("/api/login", express.json(), (req, res) => {
+        const password = String(req.body?.password || "").trim();
+        if (password === accessPassword) {
+            res.set("Set-Cookie", `kira_token=${accessPassword}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`);
+            return res.json({ ok: true });
+        }
+        return res.status(401).json({ error: "wrong password" });
+    });
+}
 function describeError(error) {
     if (error && typeof error === "object") {
         const maybeError = error;
