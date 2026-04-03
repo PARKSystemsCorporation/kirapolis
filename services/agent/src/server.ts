@@ -3360,20 +3360,33 @@ app.post("/api/model-lab/weight-unlearning/dataset", async (req, res) => {
 app.post("/api/model-lab/weight-unlearning/prepare", async (req, res) => {
     const schema = z.object({
         datasetRoot: z.string().min(1),
-        baseModelPath: z.string().min(1)
+        baseModelPath: z.string().min(1),
+        precision: z.string().optional(),
+        targetModules: z.string().optional(),
+        gradientCheckpointing: z.boolean().optional()
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
         return res.status(400).json({ error: "invalid request" });
     }
     try {
-        const result = await runCommand("node", [
+        const prepareArgs = [
             path.join(config.controlRoot, "scripts", "prepare-weight-unlearning.mjs"),
             "--dataset-root",
             parsed.data.datasetRoot,
             "--base-model-path",
             parsed.data.baseModelPath
-        ], config.controlRoot);
+        ];
+        if (parsed.data.precision) {
+            prepareArgs.push("--precision", parsed.data.precision);
+        }
+        if (parsed.data.targetModules) {
+            prepareArgs.push("--target-modules", parsed.data.targetModules);
+        }
+        if (parsed.data.gradientCheckpointing) {
+            prepareArgs.push("--gradient-checkpointing");
+        }
+        const result = await runCommand("node", prepareArgs, config.controlRoot);
         if (result.code !== 0) {
             return res.status(500).json({ error: result.stderr || result.stdout || "job prepare failed" });
         }

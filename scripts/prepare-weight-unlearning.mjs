@@ -14,6 +14,9 @@ function parseArgs(argv) {
     loraAlpha: 32,
     loraDropout: 0.05,
     maxLength: 2048,
+    precision: "auto",
+    targetModules: "auto",
+    gradientCheckpointing: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -21,13 +24,15 @@ function parseArgs(argv) {
     if (!token.startsWith("--")) continue;
     const key = token.slice(2);
     const next = argv[index + 1];
-    if (["dataset-root", "base-model-path", "output-root"].includes(key)) {
+    if (["dataset-root", "base-model-path", "output-root", "precision", "target-modules"].includes(key)) {
       args[key.replace(/-([a-z])/g, (_, char) => char.toUpperCase())] = next;
       index += 1;
     } else if (["learning-rate", "epochs", "batch-size", "grad-accumulation", "lora-rank", "lora-alpha", "lora-dropout", "max-length"].includes(key)) {
       const camel = key.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
       args[camel] = Number(next);
       index += 1;
+    } else if (key === "gradient-checkpointing") {
+      args.gradientCheckpointing = true;
     } else {
       throw new Error(`Unknown argument: --${key}`);
     }
@@ -81,7 +86,9 @@ async function main() {
       loraAlpha: args.loraAlpha,
       loraDropout: args.loraDropout,
       maxLength: args.maxLength,
-      targetModules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+      precision: args.precision,
+      gradientCheckpointing: args.gradientCheckpointing,
+      targetModules: args.targetModules === "auto" ? "auto" : args.targetModules.split(",").map((s) => s.trim()).filter(Boolean),
     },
     files: {
       train: manifest.files.train,
@@ -108,6 +115,8 @@ async function main() {
 - Dataset: \`${datasetRoot}\`
 - Adapter output: \`${adapterOutputDir}\`
 - Merged output: \`${mergedOutputDir}\`
+- Precision: \`${config.training.precision}\`
+- Target modules: \`${config.training.targetModules === "auto" ? "auto-detected from model" : config.training.targetModules.join(", ")}\`
 
 ## Sequence
 
@@ -115,11 +124,27 @@ async function main() {
 2. Run \`merge.ps1\`
 3. Run \`evaluate.ps1\`
 
+## Precision Modes
+
+- \`auto\` — bf16 if GPU supports it, fp32 otherwise
+- \`bf16\` — half precision (recommended for 16GB+ VRAM)
+- \`fp16\` — half precision (wider GPU compatibility)
+- \`fp32\` — full precision (most VRAM, most stable)
+- \`qlora-4bit\` — 4-bit quantized LoRA (fits large models on consumer GPUs)
+- \`qlora-8bit\` — 8-bit quantized LoRA
+
+## Target Modules
+
+Set to \`auto\` to automatically detect all linear layers in the model.
+This works with any architecture (Llama, Gemma, Mistral, Qwen, etc.)
+without needing to know the internal layer names.
+
 ## Important
 
 - This pipeline expects a local Hugging Face style checkpoint, not an Ollama tag.
 - The final merged checkpoint is the artifact you can honestly describe as weight-changed.
 - Ollama serving would require a separate conversion/import step after merge.
+- For QLoRA modes, install bitsandbytes: \`pip install bitsandbytes\`
 `;
 
   await fs.writeFile(readmePath, readme, "utf8");

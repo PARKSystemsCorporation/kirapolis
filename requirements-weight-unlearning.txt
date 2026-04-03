@@ -4,3 +4,4 @@ peft>=0.14
 accelerate>=0.34
 datasets>=2.21
 safetensors>=0.4
+bitsandbytes>=0.44; sys_platform != "darwin"
