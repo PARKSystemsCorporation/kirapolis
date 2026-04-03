@@ -5,8 +5,7 @@ COPY apps/desktop/package.json apps/desktop/package.json
 COPY services/agent/package.json services/agent/package.json
 RUN npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
 COPY services/agent/ services/agent/
-COPY apps/desktop/src/office/ apps/desktop/src/office/
-COPY apps/desktop/src/shared/ apps/desktop/src/shared/
+COPY apps/desktop/ apps/desktop/
 COPY data/ data/
 COPY scripts/ scripts/
 COPY .env.example .env.example

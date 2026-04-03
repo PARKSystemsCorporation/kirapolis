@@ -54,6 +54,14 @@ const weightUnlearningRuntime = {
     process: null,
     lastResult: null
 };
+function getModelLabExecutionLabel() {
+    const target = String(config.modelLabExecutionTarget || "local").toLowerCase();
+    if (target === "railway") {
+        return "Railway backend";
+    }
+    const machine = String(config.modelLabMachineLabel || "this computer").trim();
+    return machine ? `local computer (${machine})` : "local computer";
+}
 app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
@@ -1227,8 +1235,16 @@ async function getModelLabStatus() {
         status: String(entry.status || "info")
     }));
     const latestSample = trainingSamples[0] || null;
+    const executionTarget = String(config.modelLabExecutionTarget || "local").toLowerCase();
+    const executionLabel = getModelLabExecutionLabel();
     return {
         generatedAt: Date.now(),
+        environment: {
+            runtimeMode: config.runtimeMode,
+            modelLabExecutionTarget: executionTarget,
+            modelLabExecutionLabel: executionLabel,
+            modelLabMachineLabel: config.modelLabMachineLabel
+        },
         providerStatus,
         models,
         neutralization: {
@@ -1261,10 +1277,10 @@ async function getModelLabStatus() {
                         ? `Latest reset: ${runs[0].derivedName}`
                         : "No reset run yet",
                 detail: modelLabRuntime.running
-                    ? `${(modelLabRuntime.currentRun?.traits || []).length || 0} trait pathway${((modelLabRuntime.currentRun?.traits || []).length || 0) === 1 ? "" : "s"} targeted.`
+                    ? `${(modelLabRuntime.currentRun?.traits || []).length || 0} trait pathway${((modelLabRuntime.currentRun?.traits || []).length || 0) === 1 ? "" : "s"} targeted on ${executionLabel}.`
                     : runs[0]
-                        ? `${(runs[0].traitsToSuppress || []).length || 0} stripped trait pathway${((runs[0].traitsToSuppress || []).length || 0) === 1 ? "" : "s"} | ${runs[0].evalPromptCount || 0} eval prompts.`
-                        : "Choose a base model and highlight the memory or identity pathways to remove."
+                        ? `${(runs[0].traitsToSuppress || []).length || 0} stripped trait pathway${((runs[0].traitsToSuppress || []).length || 0) === 1 ? "" : "s"} | ${runs[0].evalPromptCount || 0} eval prompts | executed on ${executionLabel}.`
+                        : `Choose a base model and highlight the memory or identity pathways to remove. Runs currently execute on ${executionLabel}.`
             },
             reintroduction: {
                 status: stagedSamples.length ? "staged" : latestSample ? "ready" : "idle",
@@ -1707,7 +1723,7 @@ function ensureAutonomyTaskCount(agent, chat, tasks) {
     const normalized = normalizeTaskPlans(tasks);
     const defaults = defaultAutonomyTasks(agent, chat);
     const filled = [...normalized];
-    while (filled.length < 10) {
+    while (filled.length < 1) {
         const template = defaults[filled.length] || defaults[defaults.length - 1];
         filled.push({
             title: template.title,
@@ -1715,7 +1731,7 @@ function ensureAutonomyTaskCount(agent, chat, tasks) {
             searchTerms: [...template.searchTerms]
         });
     }
-    return filled.slice(0, 10);
+    return filled.slice(0, 3);
 }
 function fallbackTaskPlan(agent, chat) {
     return ensureAutonomyTaskCount(agent, chat, []);
@@ -1939,7 +1955,7 @@ async function deleteWorkspacePaths(pathsToDelete) {
 async function generateAutonomyTasks(agent, chat, searchHits) {
     const prompt = [
         "Generate a task list for your next autonomy cycle.",
-        "Return JSON only: an array of exactly 10 objects with keys title, detail, searchTerms.",
+        "Return JSON only: an array of 1 to 3 objects with keys title, detail, searchTerms.",
         "The tasks must fit your role, the latest group chat context, and the documents found.",
         "Prefer concrete, sequential tasks that can be completed in one cycle.",
         "Do not include meta commentary. Do not skip task slots.",
@@ -1965,7 +1981,7 @@ async function generateAutonomyTasks(agent, chat, searchHits) {
     }
 }
 async function syncAutonomyBoardTasks(agentId, chat, tasks, cycleTag) {
-    for (let index = 0; index < 10; index += 1) {
+    for (let index = 0; index < Math.max(tasks.length, 3); index += 1) {
         const task = tasks[index];
         const taskId = `auto-${chat.id}-${agentId}-${index}`;
         if (!task) {
@@ -2440,6 +2456,11 @@ async function runAgentGroupCycle(agent, chat, cycleIndex) {
     const tasks = await generateAutonomyTasks(agent, chat, intakeHits);
     await setAgentPresence(agent.id, "waiting");
     await syncAutonomyBoardTasks(agent.id, chat, tasks, cycleStamp);
+    await appendChatMessageById(chat.id, {
+        role: "assistant",
+        author: agent.name,
+        content: `On it. Working on ${tasks.length} task${tasks.length === 1 ? "" : "s"} this cycle:\n${tasks.map((t, i) => `${i + 1}. ${t.title}`).join("\n")}`
+    });
     const taskSummaries = [];
     const executionOutputs = [];
     for (let index = 0; index < tasks.length; index += 1) {
@@ -2518,20 +2539,20 @@ async function runAgentGroupCycle(agent, chat, cycleIndex) {
         `Your cycle summary was stored at ${relativeFromWorkspace(summaryPath)}.`
     ].filter(Boolean).join("\n\n"), "autonomy-chat-in");
     await setAgentPresence(agent.id, "waiting");
-    if ((postReply.result.content || "").trim()) {
-        await appendChatMessageById(chat.id, {
-            role: "assistant",
-            author: agent.name,
-            content: postReply.result.content.trim()
-        });
-    }
+    const replyContent = (postReply.result.content || "").trim()
+        || `Done. Completed ${taskSummaries.length} task${taskSummaries.length === 1 ? "" : "s"}:\n${taskSummaries.map((s) => `- ${s}`).join("\n")}`;
+    await appendChatMessageById(chat.id, {
+        role: "assistant",
+        author: agent.name,
+        content: replyContent
+    });
     await setAgentPresence(agent.id, "active");
     return `${agent.name} read ${chat.title}, worked ${tasks.length} task${tasks.length === 1 ? "" : "s"}, and posted a final update in ${relativeFromWorkspace(summaryPath)}.`;
 }
 class TeamHeartbeat {
     status = {
         active: false,
-        intervalMs: 60000,
+        intervalMs: 30000,
         cooldownMs: 0,
         maxAgentsPerCycle: 10,
         cyclesCompleted: 0,
@@ -2555,7 +2576,7 @@ class TeamHeartbeat {
             }))
         };
     }
-    async start(intervalMs = 60000, maxAgentsPerCycle = 10) {
+    async start(intervalMs = 30000, maxAgentsPerCycle = 10) {
         this.status.active = true;
         this.status.intervalMs = Math.max(15000, Math.min(intervalMs, 3600000));
         this.status.maxAgentsPerCycle = Math.max(1, Math.min(maxAgentsPerCycle, 10));
@@ -3231,6 +3252,7 @@ app.post("/api/model-lab/neutralize", async (req, res) => {
         modelLabRuntime.logEntries = [];
         modelLabRuntime.lastResult = null;
         pushModelLabLog("system", `Starting neutralization for ${parsed.data.derivedName}.`);
+        pushModelLabLog("system", `Execution target: ${getModelLabExecutionLabel()}.`);
         pushModelLabLog("system", `Base model: ${parsed.data.baseModel}`);
         pushModelLabLog("system", `Traits to remove: ${(parsed.data.traits || []).join(", ") || "none specified"}`);
         const child = spawn("node", args, {
@@ -4657,6 +4679,164 @@ app.post("/api/workspace/write", async (req, res) => {
         return res.status(500).json({ error: error instanceof Error ? error.message : "unknown error" });
     }
 });
+app.get("/api/fs/ls", async (req, res) => {
+    const requestedPath = String(req.query.path || "").trim();
+    if (!requestedPath && process.platform === "win32") {
+        const drives = [];
+        for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+            const drivePath = `${letter}:\\`;
+            try {
+                await fs.access(drivePath);
+                drives.push({ name: `${letter}:`, path: drivePath, type: "drive" });
+            } catch {}
+        }
+        return res.json({ path: "", parent: null, entries: drives });
+    }
+    const targetPath = path.resolve(requestedPath || os.homedir());
+    const resolved = path.dirname(targetPath);
+    const parentPath = resolved !== targetPath ? resolved : null;
+    try {
+        const entries = await fs.readdir(targetPath, { withFileTypes: true });
+        const dirs = entries
+            .filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules")
+            .map((e) => ({ name: e.name, path: path.join(targetPath, e.name), type: "dir" }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        return res.json({ path: targetPath, parent: parentPath, entries: dirs });
+    } catch (error) {
+        return res.status(400).json({ error: describeError(error) });
+    }
+});
+
+// --- Obsidian-style notes layer ---
+
+function parseFrontmatter(content) {
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!match) return {};
+    const block = match[1];
+    const result = {};
+    for (const line of block.split(/\r?\n/)) {
+        const colon = line.indexOf(":");
+        if (colon === -1) continue;
+        const key = line.slice(0, colon).trim();
+        const raw = line.slice(colon + 1).trim();
+        if (!key) continue;
+        if (raw.startsWith("[") && raw.endsWith("]")) {
+            result[key] = raw.slice(1, -1).split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+        } else {
+            result[key] = raw.replace(/^["']|["']$/g, "");
+        }
+    }
+    return result;
+}
+
+function extractWikilinks(content) {
+    return [...content.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => {
+        const inner = m[1];
+        const [linkPart] = inner.split("|");
+        const [filePart] = linkPart.split("#");
+        return filePart.trim();
+    });
+}
+
+async function readNoteContent(notePath, usingControlPrefix) {
+    const baseRoot = usingControlPrefix ? config.controlRoot : config.projectRoot;
+    const strippedPath = usingControlPrefix ? notePath.slice("__control__/".length) : notePath;
+    try {
+        return await fs.readFile(path.resolve(baseRoot, strippedPath), "utf8");
+    } catch {
+        return null;
+    }
+}
+
+app.get("/api/notes/daily", async (_req, res) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const notePath = path.join(config.controlRoot, "docs", "daily", `${today}.md`);
+    const relPath = path.relative(config.controlRoot, notePath).replace(/\\/g, "/");
+    await fs.mkdir(path.dirname(notePath), { recursive: true });
+    let content;
+    let created = false;
+    try {
+        content = await fs.readFile(notePath, "utf8");
+    } catch {
+        content = `# ${today}\n\n`;
+        await fs.writeFile(notePath, content, "utf8");
+        created = true;
+    }
+    return res.json({ path: relPath, content, date: today, created });
+});
+
+app.post("/api/notes/daily", async (req, res) => {
+    const schema = z.object({ text: z.string().min(1) });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "invalid request" });
+    const today = new Date().toISOString().slice(0, 10);
+    const notePath = path.join(config.controlRoot, "docs", "daily", `${today}.md`);
+    await fs.mkdir(path.dirname(notePath), { recursive: true });
+    let existing = "";
+    try { existing = await fs.readFile(notePath, "utf8"); } catch { existing = `# ${today}\n\n`; }
+    const updated = existing.trimEnd() + "\n\n" + parsed.data.text.trim() + "\n";
+    await fs.writeFile(notePath, updated, "utf8");
+    const relPath = path.relative(config.controlRoot, notePath).replace(/\\/g, "/");
+    return res.json({ ok: true, path: relPath });
+});
+
+app.get("/api/notes/backlinks", async (req, res) => {
+    const targetPath = String(req.query.path || "").trim();
+    if (!targetPath) return res.status(400).json({ error: "path required" });
+    const targetName = path.posix.basename(targetPath, path.posix.extname(targetPath)).toLowerCase();
+    const targetNormalized = targetPath.toLowerCase();
+    const projectItems = await buildWorkspaceIndex(config.projectRoot, shouldIncludeWorkspaceNote);
+    const controlItems = config.controlRoot !== config.projectRoot
+        ? prefixWorkspaceIndexItems(await buildWorkspaceIndex(config.controlRoot, shouldIncludeWorkspaceNote), "__control__")
+        : [];
+    const allNotes = [...projectItems, ...controlItems];
+    const backlinks = [];
+    for (const note of allNotes) {
+        if (note.path === targetPath) continue;
+        const usingControlPrefix = note.path.startsWith("__control__/");
+        const content = await readNoteContent(note.path, usingControlPrefix);
+        if (!content) continue;
+        const links = extractWikilinks(content);
+        const matches = links.some((link) => link.toLowerCase() === targetName || link.toLowerCase() === targetNormalized);
+        if (matches) {
+            const excerpt = content.split(/\r?\n/).find((line) => /\[\[/.test(line))?.trim() || "";
+            backlinks.push({ path: note.path, name: note.name, excerpt });
+        }
+    }
+    return res.json({ target: targetPath, backlinks });
+});
+
+app.get("/api/notes/resolve", async (req, res) => {
+    const link = String(req.query.link || "").trim();
+    if (!link) return res.status(400).json({ error: "link required" });
+    const linkLower = link.toLowerCase();
+    const projectItems = await buildWorkspaceIndex(config.projectRoot, shouldIncludeWorkspaceNote);
+    const controlItems = config.controlRoot !== config.projectRoot
+        ? prefixWorkspaceIndexItems(await buildWorkspaceIndex(config.controlRoot, shouldIncludeWorkspaceNote), "__control__")
+        : [];
+    const allNotes = [...projectItems, ...controlItems];
+    const match = allNotes.find((note) => {
+        const nameNoExt = path.posix.basename(note.path, path.posix.extname(note.path)).toLowerCase();
+        return nameNoExt === linkLower || note.path.toLowerCase() === linkLower;
+    });
+    if (!match) return res.status(404).json({ error: "note not found", link });
+    const usingControlPrefix = match.path.startsWith("__control__/");
+    const content = await readNoteContent(match.path, usingControlPrefix);
+    const frontmatter = content ? parseFrontmatter(content) : {};
+    return res.json({ path: match.path, name: match.name, content: content ?? "", frontmatter });
+});
+
+app.get("/api/notes/frontmatter", async (req, res) => {
+    const notePath = String(req.query.path || "").trim();
+    if (!notePath) return res.status(400).json({ error: "path required" });
+    const usingControlPrefix = notePath.startsWith("__control__/");
+    const content = await readNoteContent(notePath, usingControlPrefix);
+    if (content === null) return res.status(404).json({ error: "note not found" });
+    return res.json({ path: notePath, frontmatter: parseFrontmatter(content) });
+});
+
+// --- end notes layer ---
+
 await baseBrain.init();
 await personaRegistry.init();
 await teamRegistry.init();

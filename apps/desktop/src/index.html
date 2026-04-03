@@ -101,13 +101,17 @@
       min-width: 0;
     }
     .header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
       border-bottom: 1px solid var(--line);
       padding: 12px 16px;
       display: flex;
       justify-content: space-between;
       gap: 16px;
       align-items: center;
-      background: rgba(5,5,5,0.95);
+      background: rgba(5, 5, 5, 0.97);
+      backdrop-filter: blur(14px);
     }
     .tabs {
       display: flex;
@@ -124,9 +128,12 @@
       color: #fff;
     }
     .content {
+      display: flex;
+      flex-direction: column;
       padding: 14px 16px 16px;
       overflow: hidden;
       min-height: 0;
+      gap: 12px;
     }
     .panel {
       border: 1px solid var(--line);
@@ -136,10 +143,14 @@
     }
     .stack { display: grid; gap: 14px; }
     .tab-panel {
+      flex: 1;
       min-height: 0;
-      height: 100%;
       overflow: auto;
       padding-right: 4px;
+    }
+    #tab-chat.tab-panel {
+      overflow: hidden;
+      padding-right: 0;
     }
     .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
@@ -570,6 +581,65 @@
       background: rgba(255, 122, 26, 0.14);
       box-shadow: inset 0 1px 0 rgba(255, 213, 176, 0.18);
     }
+    .folder-picker-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      background: rgba(0, 0, 0, 0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .folder-picker-overlay.hidden { display: none; }
+    .folder-picker {
+      background: #0e1219;
+      border: 1px solid rgba(255, 151, 77, 0.22);
+      border-radius: 18px;
+      width: min(520px, calc(100vw - 32px));
+      max-height: 70vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .folder-picker-head {
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid rgba(255, 151, 77, 0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .folder-picker-head .label { font-size: 13px; opacity: 0.6; }
+    .folder-picker-path {
+      font-family: monospace;
+      font-size: 12px;
+      color: rgba(244, 232, 216, 0.7);
+      word-break: break-all;
+      min-height: 16px;
+    }
+    .folder-picker-list {
+      overflow-y: auto;
+      padding: 8px 0;
+      flex: 1;
+    }
+    .folder-picker-entry {
+      padding: 8px 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: rgba(244, 232, 216, 0.85);
+      transition: background 0.1s;
+    }
+    .folder-picker-entry:hover { background: rgba(255, 122, 26, 0.1); }
+    .folder-picker-entry .fp-icon { opacity: 0.5; font-size: 14px; }
+    .folder-picker-foot {
+      padding: 12px 18px;
+      border-top: 1px solid rgba(255, 151, 77, 0.1);
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
     .settings-popup {
       position: fixed;
       top: 76px;
@@ -708,6 +778,7 @@
       color: #dfc1a6;
     }
     .hero-copy { max-width: 620px; font-size: 12px; line-height: 1.5; color: #d9bb9f; }
+    .log-collapsed { max-height: 0 !important; min-height: 0 !important; overflow: hidden !important; padding: 0 !important; border-color: transparent !important; }
     .inline-input {
       display: flex;
       gap: 8px;
@@ -726,9 +797,10 @@
     .sidebar-hero { min-height: auto; gap: 12px; }
     .sidebar-kpis, .hero-metrics {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 10px;
     }
+    .sidebar-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
     .sidebar-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .sidebar-kpi, .hero-stat, .detail-card, .room-launch-card, .status-row {
       border: 1px solid rgba(255, 151, 77, 0.14);
@@ -770,14 +842,16 @@
       display: grid;
       grid-template-columns: minmax(250px, 0.8fr) minmax(0, 1.7fr) minmax(280px, 0.9fr);
       gap: 16px;
-      min-height: calc(100vh - 138px);
+      height: 100%;
+      min-height: 0;
     }
-    .chat-panel { min-height: 0; display: grid; gap: 14px; align-content: start; }
+    .chat-panel { min-height: 0; display: grid; gap: 14px; align-content: start; overflow-y: auto; }
     .chat-stage {
       display: grid;
       grid-template-rows: auto 1fr auto;
       gap: 12px;
       min-height: 0;
+      overflow: hidden;
     }
     .chat-members, .manager-focus-meta {
       display: flex;
@@ -818,29 +892,28 @@
     .chat-message-list {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
       min-height: 0;
-      height: 100%;
-      max-height: 432px;
+      flex: 1;
       overflow-y: auto;
       overflow-x: hidden;
-      padding-right: 8px;
+      padding: 4px 8px 4px 0;
       scrollbar-gutter: stable;
+      scroll-behavior: smooth;
     }
     .message {
-      width: min(84%, 780px);
-      min-width: min(100%, 320px);
+      width: min(82%, 760px);
+      min-width: min(100%, 280px);
       align-self: flex-start;
       flex: 0 0 auto;
-      padding: 12px 13px;
-      min-height: 96px;
+      padding: 10px 13px;
       display: grid;
       align-content: start;
       background: rgba(21, 13, 8, 0.96);
       border: 1px solid rgba(255, 151, 77, 0.1);
-      border-radius: 18px;
+      border-radius: 16px;
     }
-    .message.user { align-self: flex-end; }
+    .message.user { align-self: flex-end; background: rgba(48, 26, 10, 0.97); border-color: rgba(255, 122, 26, 0.28); }
     .message-header {
       display: flex;
       align-items: center;
@@ -1853,10 +1926,10 @@
           <button class="tab active" data-tab="control">Command</button>
           <button class="tab" data-tab="chat">Comms</button>
           <button class="tab" data-tab="studio">Studio</button>
-          <button class="tab" data-tab="lab">Model Lab</button>
+          <button class="tab" data-tab="lab">Model</button>
           <button class="tab" data-tab="office">Office</button>
-          <button class="tab" data-tab="watch">Ops</button>
-          <button class="tab" data-tab="files">Workspace</button>
+          <button class="tab" data-tab="watch">Monitor</button>
+          <button class="tab" data-tab="files">Files</button>
           <button class="tab" id="toggle-settings-btn">Settings</button>
         </div>
         <div id="banner" class="sub"></div>
@@ -1870,9 +1943,9 @@
         </div>
         <div class="surface-strip">
           <div class="surface-card">
-            <div class="label">View</div>
-            <strong id="surface-active-tab">Command</strong>
-            <div id="surface-active-copy" class="sub">Run the org from one place with the 2D office available behind every tab.</div>
+            <div class="label">Autonomy</div>
+            <strong id="surface-autonomy-status">Checking</strong>
+            <div id="surface-autonomy-copy" class="sub">Checking autonomy status.</div>
           </div>
           <div class="surface-card">
             <div class="label">Agent</div>
@@ -1898,14 +1971,14 @@
                   <div class="pill">Systems Command</div>
                   <div class="pill">Orange Ops Surface</div>
                 </div>
-                <div class="big">Run the whole org from one place without losing the room-level detail.</div>
-                <div class="hero-copy">This adapts the stronger firm/chat feel from <span class="mono">demokira</span> for your actual systems setup: managers up front, specialists readable at a glance, and room coordination that feels obvious instead of hidden.</div>
+                <div class="big">Run the whole org from one place.</div>
+                <div class="hero-copy">Set your operating brief, verify system health, configure your project path, then enable autonomy from Settings when ready to run.</div>
                 <div class="toolbar">
                   <button class="primary" id="save-brief-btn">Save Brief</button>
                   <button id="brief-core-team-btn">Brief Core Team</button>
-                  <button id="director-reset-btn">Director Reset</button>
                   <button id="launch-check-btn">Launch Check</button>
                   <button id="backup-snapshot-btn">Export Backup</button>
+                  <button id="director-reset-btn">Director Reset</button>
                 </div>
                 <div id="loop-status" class="sub"></div>
                 <div class="status-legend">
@@ -1930,6 +2003,10 @@
                   <div class="hero-stat">
                     <div class="label">Failures</div>
                     <div id="metric-failures" class="kpi">0</div>
+                  </div>
+                  <div class="hero-stat">
+                    <div class="label">Autonomy</div>
+                    <div id="metric-autonomy" class="kpi status">Off</div>
                   </div>
                 </div>
               </div>
@@ -2041,8 +2118,11 @@
               </div>
 
               <div class="panel stack">
-                <div class="label">Backend Log</div>
-                <div id="agent-log" class="viewer"></div>
+                <div class="row-head">
+                  <div class="label">Backend Log</div>
+                  <button type="button" id="log-toggle-btn">Show Log</button>
+                </div>
+                <div id="agent-log" class="viewer log-collapsed"></div>
               </div>
             </div>
 
@@ -2068,13 +2148,6 @@
                 <div id="manager-room-launchpad" class="room-launch-grid"></div>
               </div>
 
-              <div class="panel stack">
-                <div class="row-head">
-                  <div class="label">Remote Access</div>
-                  <div class="sub">Use your Windows hotspot and open this on the iPad.</div>
-                </div>
-                <div id="remote-access-list" class="detail-list"></div>
-              </div>
               <div class="panel stack">
                 <div class="row-head">
                   <div class="label">Launch Readiness</div>
@@ -2631,8 +2704,8 @@
     <button class="mobile-tab" data-tab="studio">Studio</button>
     <button class="mobile-tab" data-tab="lab">Model</button>
     <button class="mobile-tab" data-tab="office">Office</button>
-    <button class="mobile-tab" data-tab="watch">Ops</button>
-    <button class="mobile-tab" data-tab="files">Workspace</button>
+    <button class="mobile-tab" data-tab="watch">Monitor</button>
+    <button class="mobile-tab" data-tab="files">Files</button>
   </div>
   <div id="immersive-office-shell" class="immersive-office-shell" aria-hidden="true">
     <div id="immersive-office-status" class="frame-status">Loading fullscreen office...</div>
@@ -2642,6 +2715,19 @@
     <button type="button" id="context-open-btn">Open</button>
     <button type="button" id="context-delete-btn">Delete</button>
     <button type="button" id="context-select-all-btn">Select all</button>
+  </div>
+  <div id="folder-picker-overlay" class="folder-picker-overlay hidden" role="dialog" aria-modal="true" aria-label="Choose folder">
+    <div class="folder-picker">
+      <div class="folder-picker-head">
+        <div class="label">Choose a folder</div>
+        <div id="folder-picker-path" class="folder-picker-path"></div>
+      </div>
+      <div id="folder-picker-list" class="folder-picker-list"></div>
+      <div class="folder-picker-foot">
+        <button type="button" id="folder-picker-cancel">Cancel</button>
+        <button type="button" id="folder-picker-select" class="primary">Select This Folder</button>
+      </div>
+    </div>
   </div>
   <div id="settings-popup" class="settings-popup hidden">
     <div class="panel stack">
@@ -2659,6 +2745,15 @@
         </div>
         <button type="button" id="settings-autonomy-toggle" class="autonomy-toggle is-off">Autonomy Off</button>
         <div id="settings-autonomy-copy" class="sub">Checking autonomy status.</div>
+      </div>
+      <div class="settings-block">
+        <div class="row-head">
+          <div>
+            <div class="label">Network</div>
+            <strong>Local access URLs</strong>
+          </div>
+        </div>
+        <div id="remote-access-list" class="detail-list"></div>
       </div>
       <div class="sub">Use these reset actions only when you want a hard restart of the live environment.</div>
       <div class="settings-actions">
@@ -3149,30 +3244,24 @@
     }
 
     function renderSurfaceStrip() {
-      const tabLabels = {
-        control: ["Command", "Quick actions and live loop."],
-        chat: ["Comms", "Rooms, handoffs, and transcript."],
-        studio: ["Studio", "Personas and agents."],
-        lab: ["Model Lab", "Inspect, strip, and retrain."],
-        office: ["Office", "Live floor monitor."],
-        watch: ["Ops", "Tasks, issues, and momentum."],
-        files: ["Workspace", "Site, files, and notes."],
-      };
-      const [tabTitle, tabCopy] = tabLabels[state.activeTab] || ["Command", "Run the org from one place."];
       const activeAgent = getSelectedAgent();
       const activeChat = state.chats.find((entry) => entry.id === state.activeChatId) || null;
       const backendProbe = state.system?.probes?.backend;
       const ollamaProbe = state.system?.probes?.ollama;
       const openclawProbe = state.system?.probes?.openclaw;
       const lastActionAt = state.autonomyStatus?.lastRunAt || state.board?.activity?.[0]?.createdAt || null;
-      $("surface-active-tab").textContent = tabTitle;
-      $("surface-active-copy").textContent = tabCopy;
+      const autonomyOn = Boolean(state.autonomyStatus?.active);
+      $("surface-autonomy-status").textContent = autonomyOn ? "Live" : "Off";
+      $("surface-autonomy-copy").textContent = autonomyOn
+        ? `Running — last action ${formatRelative(lastActionAt)} ago`
+        : "Enable in Settings when ready to run.";
       $("surface-active-agent").textContent = activeAgent?.name || "No agent selected";
       $("surface-agent-copy").textContent = activeAgent ? compactText(summarizeRuntime(activeAgent), 56) : "Select someone to follow.";
       $("surface-active-room").textContent = activeChat?.title || "No room";
       $("surface-room-copy").textContent = activeChat ? compactText(getChatPreview(activeChat), 52) : "Open a room when handoff gets hot.";
-      $("surface-runtime").textContent = state.autonomyStatus?.active ? "Autonomy Live" : (backendProbe?.ok ? "Online" : "Offline");
-      $("surface-runtime-copy").textContent = `${state.autonomyStatus?.active ? `Last action ${formatRelative(lastActionAt)} ago` : "Autonomy off"} | Backend ${backendProbe?.ok ? "ok" : "down"} | Ollama ${ollamaProbe?.ok ? "ok" : "down"} | OpenClaw ${openclawProbe?.ok ? "ok" : "down"}`;
+      $("surface-runtime").textContent = backendProbe?.ok ? "Online" : "Offline";
+      $("surface-runtime-copy").textContent = `Backend ${backendProbe?.ok ? "ok" : "down"} | Ollama ${ollamaProbe?.ok ? "ok" : "down"} | OpenClaw ${openclawProbe?.ok ? "ok" : "down"}`;
+      if ($("metric-autonomy")) $("metric-autonomy").textContent = autonomyOn ? "On" : "Off";
       renderAutonomyPresence();
     }
 
@@ -3322,14 +3411,14 @@
       const officeUrl = urls[0] ? `${urls[0].replace(/\/app$/, "")}/experience/office/` : getOfficeExperienceUrl();
       target.innerHTML = urls.length ? `${urls.map((url) => `
         <div class="detail-card">
-          <div class="label">Open On iPad</div>
+          <div class="label">Network URL</div>
           <div class="sub mono">${escapeHtml(url)}</div>
         </div>
       `).join("")}
         <div class="detail-card">
           <div class="label">Office URL</div>
           <div class="sub mono">${escapeHtml(officeUrl)}</div>
-        </div>` : `<div class="empty">No external IPv4 address found yet. Turn on your Windows hotspot, reconnect the iPad, then refresh system status.</div>`;
+        </div>` : `<div class="empty">No external IPv4 address detected. Set KIRA_HOST=0.0.0.0 to expose on the local network.</div>`;
     }
 
     async function api(path, method = "GET", body) {
@@ -3551,7 +3640,7 @@
         </div>
         <div class="detail-card">
           <div class="label">Remote</div>
-          <div class="runtime-note">${escapeHtml(remoteOk ? readiness.remoteUrls[0] : "No hotspot URL detected yet.")}</div>
+          <div class="runtime-note">${escapeHtml(remoteOk ? readiness.remoteUrls[0] : "No network URL detected.")}</div>
           <div class="sub">${escapeHtml(readiness.websiteProjectPath || "")}</div>
         </div>
       `;
@@ -4466,65 +4555,71 @@
 
     async function sendMessage() {
       const input = $("message-input");
+      const sendButton = $("send-message-btn");
       const content = input.value.trim();
       const chat = state.chats.find((entry) => entry.id === state.activeChatId);
       if (!content || !chat) return;
       const next = structuredClone(state.board.messenger);
       const target = next.chats.find((entry) => entry.id === chat.id);
+      if (!target) return;
+      const createdAt = Date.now();
       target.messages.push({
-        id: `msg-${Date.now()}`,
+        id: `msg-${createdAt}`,
         role: "user",
         author: "You",
         content,
-        createdAt: Date.now()
+        createdAt
       });
       next.activeChatId = chat.id;
-      await api("/api/messenger", "POST", next);
       input.value = "";
-      const assistantMessages = [];
-      if (chat.type === "group") {
-        for (const agentId of chat.members) {
+      input.disabled = true;
+      sendButton.disabled = true;
+      try {
+        await api("/api/messenger", "POST", next);
+        await refreshBoard();
+        const memberIds = chat.type === "group"
+          ? chat.members.filter(Boolean)
+          : (chat.members[0] ? [chat.members[0]] : []);
+        if (!memberIds.length) {
+          setBanner("Message sent.");
+          return;
+        }
+        setBanner(memberIds.length > 1 ? `Waiting for ${memberIds.length} room replies...` : "Waiting for reply...");
+        const assistantMessages = (await Promise.all(memberIds.map(async (agentId, index) => {
           const result = await api("/api/team/chat", "POST", {
             agentId,
             prompt: content,
             mode: "messenger"
           }).catch(() => null);
-          if (result?.content?.trim()) {
-            assistantMessages.push({
-              id: `msg-${Date.now()}-${agentId}`,
-              role: "assistant",
-              author: result.agent?.name || state.agents.find((agent) => agent.id === agentId)?.name || agentId,
-              content: result.content.trim(),
-              createdAt: Date.now()
-            });
+          if (!result?.content?.trim()) {
+            return null;
           }
-        }
-      } else if (chat.members[0]) {
-        const result = await api("/api/team/chat", "POST", {
-          agentId: chat.members[0],
-          prompt: content,
-          mode: "messenger"
-        }).catch(() => null);
-        if (result?.content?.trim()) {
-          assistantMessages.push({
-            id: `msg-${Date.now()}-${chat.members[0]}`,
+          return {
+            id: `msg-${Date.now()}-${agentId}-${index}`,
             role: "assistant",
-            author: result.agent?.name || state.agents.find((agent) => agent.id === chat.members[0])?.name || chat.members[0],
+            author: result.agent?.name || state.agents.find((agent) => agent.id === agentId)?.name || agentId,
             content: result.content.trim(),
             createdAt: Date.now()
-          });
+          };
+        }))).filter(Boolean);
+        if (assistantMessages.length) {
+          const latest = await api("/api/messenger");
+          const latestTarget = latest.chats.find((entry) => entry.id === chat.id);
+          if (latestTarget) {
+            latestTarget.messages.push(...assistantMessages);
+            latest.activeChatId = chat.id;
+            await api("/api/messenger", "POST", latest);
+          }
+          setBanner(memberIds.length > 1 ? `Received ${assistantMessages.length} room replies.` : "Reply received.");
+        } else {
+          setBanner("Message sent, but no agent replied.");
         }
+        await refreshBoard();
+      } finally {
+        input.disabled = false;
+        sendButton.disabled = false;
+        input.focus();
       }
-      if (assistantMessages.length) {
-        const latest = await api("/api/messenger");
-        const target = latest.chats.find((entry) => entry.id === chat.id);
-        if (target) {
-          target.messages.push(...assistantMessages);
-          latest.activeChatId = chat.id;
-          await api("/api/messenger", "POST", latest);
-        }
-      }
-      await refreshBoard();
     }
 
     async function saveBrief() {
@@ -4716,6 +4811,7 @@
     function renderModelLabSummaries() {
       const neutralization = state.modelLab?.summaries?.neutralization || {};
       const reintroduction = state.modelLab?.summaries?.reintroduction || {};
+      const environment = state.modelLab?.environment || {};
       $("lab-neutralization-summary").innerHTML = `
         <div class="detail-card">
           <div class="label">${escapeHtml(neutralization.status || "idle")}</div>
@@ -4724,6 +4820,10 @@
         <div class="detail-card">
           <div class="label">Next</div>
           <div class="sub">${escapeHtml(neutralization.detail || "Choose the pathways to suppress and start a run.")}</div>
+        </div>
+        <div class="detail-card">
+          <div class="label">Execution</div>
+          <div class="sub">${escapeHtml(environment.modelLabExecutionLabel || "local computer")}</div>
         </div>
       `;
       $("lab-reintroduction-summary").innerHTML = `
@@ -4744,13 +4844,14 @@
       const datasets = payload.datasets || [];
       const runs = payload.runs || [];
       const defaultTemplateRoot = "data\\weight-unlearning\\templates\\presidential-memory";
+      const executionLabel = state.modelLab?.environment?.modelLabExecutionLabel || "local computer";
       $("lab-weight-runtime-pill").textContent = runtime.running ? `${runtime.phase || "run"} running` : (runtime.lastResult?.ok === false ? "Failed" : "Idle");
       $("lab-weight-runtime-pill").className = `pill ${runtime.running ? "lab-runtime-running" : runtime.lastResult?.ok === false ? "lab-runtime-error" : "lab-runtime-idle"}`;
       $("lab-weight-runtime-summary").textContent = runtime.running
-        ? `${runtime.phase || "run"} started at ${formatTime(runtime.startedAt)}.`
+        ? `${runtime.phase || "run"} started at ${formatTime(runtime.startedAt)} on ${executionLabel}.`
         : runtime.lastResult?.ok === false
-          ? `${runtime.phase || "run"} failed at ${formatTime(runtime.finishedAt)}.`
-          : "This path is for real weight updates. It expects a local Hugging Face checkpoint.";
+          ? `${runtime.phase || "run"} failed at ${formatTime(runtime.finishedAt)} on ${executionLabel}.`
+          : `This path is for real weight updates and currently runs on ${executionLabel}. It expects a local Hugging Face checkpoint.`;
       $("lab-weight-datasets-list").innerHTML = datasets.length ? datasets.map((entry) => `
         <div class="row">
           <div class="row-head">
@@ -4854,6 +4955,7 @@
       const statusPill = $("lab-runtime-pill");
       const statusSummary = $("lab-runtime-summary");
       const logMeta = $("lab-log-meta");
+      const executionLabel = state.modelLab?.environment?.modelLabExecutionLabel || "local computer";
       const runtimeLabel = runtime.running
         ? "Running"
         : runtime.lastResult?.ok === false
@@ -4864,16 +4966,16 @@
       statusPill.textContent = runtimeLabel;
       statusPill.className = `pill ${runtime.running ? "lab-runtime-running" : runtime.lastResult?.ok === false ? "lab-runtime-error" : "lab-runtime-idle"}`;
       if (runtime.running) {
-        statusSummary.textContent = `Working on ${runtime.currentRun?.derivedName || "derived model"} since ${formatTime(runtime.startedAt)}.`;
+        statusSummary.textContent = `Working on ${runtime.currentRun?.derivedName || "derived model"} since ${formatTime(runtime.startedAt)} on ${executionLabel}.`;
         logMeta.textContent = `Streaming ${(entries || []).length} log entries.`;
       } else if (runtime.lastResult?.ok) {
-        statusSummary.textContent = `Last run finished at ${formatTime(runtime.finishedAt)}.`;
+        statusSummary.textContent = `Last run finished at ${formatTime(runtime.finishedAt)} on ${executionLabel}.`;
         logMeta.textContent = `Completed with exit code ${runtime.lastResult?.code ?? 0}.`;
       } else if (runtime.lastResult) {
-        statusSummary.textContent = `Last run failed at ${formatTime(runtime.finishedAt)}.`;
+        statusSummary.textContent = `Last run failed at ${formatTime(runtime.finishedAt)} on ${executionLabel}.`;
         logMeta.textContent = `Exit code ${runtime.lastResult?.code ?? 1}.`;
       } else {
-        statusSummary.textContent = "No run active.";
+        statusSummary.textContent = `No run active. Execution target is ${executionLabel}.`;
         logMeta.textContent = "Waiting for a run.";
       }
       const runButton = $("lab-run-neutralize-btn");
@@ -4986,8 +5088,12 @@
             <div class="label">Eval Prompts</div>
             <div class="sub">${escapeHtml(latestRun.evalPromptCount || 0)} checks generated for this run.</div>
           </div>
+          <div class="detail-card">
+            <div class="label">Execution</div>
+            <div class="sub">${escapeHtml(status.environment?.modelLabExecutionLabel || "local computer")}</div>
+          </div>
         </div>
-      ` : "No neutralization run created yet.";
+      ` : `No neutralization run created yet. Execution target: ${escapeHtml(status.environment?.modelLabExecutionLabel || "local computer")}.`;
       $("lab-presets-list").innerHTML = (status.presets || []).map((preset) => `
         <div class="lab-preset-card">
           <div class="row-head">
@@ -5292,7 +5398,7 @@
       });
       if (isBrowserMode) {
         document.body.classList.add("browser-mode");
-        ["open-workspace-btn", "open-codium-btn", "restart-agent-btn", "browse-project-btn"].forEach((id) => {
+        ["open-workspace-btn", "open-codium-btn", "restart-agent-btn"].forEach((id) => {
           const node = $(id);
           if (node) {
             node.disabled = true;
@@ -5339,12 +5445,26 @@
         setBanner("Backend restarted.");
         setTimeout(refreshSystem, 1200);
       });
+      $("log-toggle-btn").addEventListener("click", () => {
+        const log = $("agent-log");
+        const btn = $("log-toggle-btn");
+        const isCollapsed = log.classList.contains("log-collapsed");
+        log.classList.toggle("log-collapsed", !isCollapsed);
+        btn.textContent = isCollapsed ? "Hide Log" : "Show Log";
+      });
       $("browse-project-btn").addEventListener("click", async () => {
-        const folder = await window.kiraDesktop.browseFolder();
-        if (folder) {
-          $("project-path-input").value = folder;
-          $("project-path-inline").textContent = folder;
+        if (!isBrowserMode) {
+          const folder = await window.kiraDesktop.browseFolder();
+          if (folder) {
+            $("project-path-input").value = folder;
+            $("project-path-inline").textContent = folder;
+          }
+          return;
         }
+        openFolderPicker((selected) => {
+          $("project-path-input").value = selected;
+          $("project-path-inline").textContent = selected;
+        });
       });
       $("save-settings-btn").addEventListener("click", saveSettings);
       $("probe-btn").addEventListener("click", refreshSystem);
@@ -5575,6 +5695,75 @@
     init().catch((error) => {
       setBanner(String(error.message || error));
     });
+
+    // --- Folder picker (browser mode) ---
+    (function () {
+      let pickerCallback = null;
+      let pickerCurrentPath = "";
+
+      async function fpLoad(targetPath) {
+        const url = "/api/fs/ls" + (targetPath ? "?path=" + encodeURIComponent(targetPath) : "");
+        try {
+          const res = await fetch(url);
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Failed to list directory");
+          renderPicker(data);
+        } catch (err) {
+          $("folder-picker-path").textContent = String(err.message || err);
+        }
+      }
+
+      function renderPicker(data) {
+        pickerCurrentPath = data.path || "";
+        $("folder-picker-path").textContent = pickerCurrentPath || "Select a drive";
+        const list = $("folder-picker-list");
+        list.innerHTML = "";
+
+        if (data.parent != null) {
+          const up = document.createElement("div");
+          up.className = "folder-picker-entry";
+          up.innerHTML = '<span class="fp-icon">↑</span> ..';
+          up.addEventListener("click", () => fpLoad(data.parent));
+          list.appendChild(up);
+        }
+
+        for (const entry of data.entries || []) {
+          const row = document.createElement("div");
+          row.className = "folder-picker-entry";
+          row.innerHTML = `<span class="fp-icon">${entry.type === "drive" ? "💾" : "📁"}</span>${escapeHtml(entry.name)}`;
+          row.addEventListener("click", () => fpLoad(entry.path));
+          list.appendChild(row);
+        }
+      }
+
+      window.openFolderPicker = function (callback) {
+        pickerCallback = callback;
+        const overlay = $("folder-picker-overlay");
+        overlay.classList.remove("hidden");
+        const currentInput = $("project-path-input")?.value?.trim();
+        fpLoad(currentInput || "");
+      };
+
+      $("folder-picker-cancel").addEventListener("click", () => {
+        $("folder-picker-overlay").classList.add("hidden");
+        pickerCallback = null;
+      });
+
+      $("folder-picker-select").addEventListener("click", () => {
+        if (pickerCurrentPath && pickerCallback) {
+          pickerCallback(pickerCurrentPath);
+        }
+        $("folder-picker-overlay").classList.add("hidden");
+        pickerCallback = null;
+      });
+
+      $("folder-picker-overlay").addEventListener("click", (e) => {
+        if (e.target === $("folder-picker-overlay")) {
+          $("folder-picker-overlay").classList.add("hidden");
+          pickerCallback = null;
+        }
+      });
+    })();
   </script>
 </body>
 </html>

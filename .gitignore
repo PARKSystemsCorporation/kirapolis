@@ -15,8 +15,11 @@ tmp-*.json
 data/backups/
 data/desktop-settings.json
 data/**/*.db
+data/agents/registry.json
+data/dashboard-state.json
 data/groups/**
 data/agent-progression.json
 data/model-neutralization/
 data/persona-training/
 data/persona-training-runs/
+services/data/
