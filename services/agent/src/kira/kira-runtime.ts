@@ -34,28 +34,42 @@ async function resolveModel(config, requestedModel) {
 export async function runKiraChat(config, brain, userPrompt, interactionMetadata = {}) {
     const decision = pickModel(config, userPrompt);
     const selectedModel = await resolveModel(config, decision.model);
-    const systemPrompt = await brain.handleUserMessage(userPrompt, interactionMetadata);
+    let systemPrompt: string;
+    try {
+        systemPrompt = await brain.handleUserMessage(userPrompt, interactionMetadata);
+    } catch (error) {
+        console.warn("[kira] memory handling failed, using base prompt:", error instanceof Error ? error.message : String(error));
+        systemPrompt = "";
+    }
     const messages = [
-        { role: "system", content: `${SYSTEM_PROMPT}\n\n${systemPrompt}` },
+        { role: "system", content: `${SYSTEM_PROMPT}${systemPrompt ? `\n\n${systemPrompt}` : ""}` },
         { role: "user", content: userPrompt }
     ];
-    if (config.provider === "openclaw") {
-        const content = await chatWithOpenClaw(config.openClawBaseUrl, selectedModel, messages);
-        await brain.recordAssistantMessage(content, interactionMetadata);
+    try {
+        let content: string;
+        if (config.provider === "openclaw") {
+            content = await chatWithOpenClaw(config.openClawBaseUrl, selectedModel, messages);
+        } else {
+            content = await chatWithOllama(config.ollamaBaseUrl, selectedModel, messages);
+        }
+        await brain.recordAssistantMessage(content, interactionMetadata).catch((error) => {
+            console.warn("[kira] failed to record assistant message:", error instanceof Error ? error.message : String(error));
+        });
         return {
             content,
             model: selectedModel,
             role: decision.role,
             reason: selectedModel === decision.model ? decision.reason : `${decision.reason}; fell back to installed model ${selectedModel}`
         };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[kira] chat provider error:", message);
+        return {
+            content: `Model unavailable: ${message}`,
+            model: selectedModel,
+            role: decision.role,
+            reason: `Provider error: ${message}`
+        };
     }
-    const content = await chatWithOllama(config.ollamaBaseUrl, selectedModel, messages);
-    await brain.recordAssistantMessage(content, interactionMetadata);
-    return {
-        content,
-        model: selectedModel,
-        role: decision.role,
-        reason: selectedModel === decision.model ? decision.reason : `${decision.reason}; fell back to installed model ${selectedModel}`
-    };
 }
 // @ts-nocheck

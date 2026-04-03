@@ -12,7 +12,8 @@
       "tools": [
         "planning",
         "workspace-read",
-        "web"
+        "web",
+        "exec"
       ],
       "skills": [
         "executive-direction",
@@ -21,7 +22,9 @@
         "client-communication",
         "unknown-exploration",
         "world-strategy",
-        "mmo-roadmapping"
+        "mmo-roadmapping",
+        "qa-testing",
+        "systems-design"
       ],
       "notes": "Sets product direction, evaluates the evolving environment, and keeps the closed-loop system aligned with the project goals and long-horizon world platform.",
       "lastBrief": "",
@@ -31,9 +34,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-ceo/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": true,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-manager",
@@ -47,7 +52,8 @@
       "tools": [
         "planning",
         "workspace-read",
-        "web"
+        "web",
+        "exec"
       ],
       "skills": [
         "project-planning",
@@ -55,7 +61,9 @@
         "qa-testing",
         "client-communication",
         "systems-design",
-        "mmo-roadmapping"
+        "mmo-roadmapping",
+        "unknown-exploration",
+        "world-strategy"
       ],
       "notes": "Breaks down work, coordinates rooms, reviews progress, and keeps the current website path compatible with a future downloadable world.",
       "lastBrief": "",
@@ -65,9 +73,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-manager/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-researcher",
@@ -81,7 +91,8 @@
       "tools": [
         "workspace-read",
         "web",
-        "planning"
+        "planning",
+        "exec"
       ],
       "skills": [
         "research",
@@ -90,7 +101,12 @@
         "project-planning",
         "unknown-exploration",
         "engine-evaluation",
-        "multiplayer-research"
+        "multiplayer-research",
+        "client-communication",
+        "qa-testing",
+        "systems-design",
+        "world-strategy",
+        "mmo-roadmapping"
       ],
       "notes": "Researches code patterns, engines, tooling, references, and implementation tradeoffs for the next build cycle and future MMO evolution.",
       "lastBrief": "",
@@ -100,9 +116,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-researcher/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-frontend",
@@ -116,7 +134,9 @@
       "tools": [
         "workspace-read",
         "workspace-write",
-        "exec"
+        "exec",
+        "planning",
+        "web"
       ],
       "skills": [
         "frontend-build",
@@ -125,7 +145,11 @@
         "responsive-layout",
         "rapid-prototyping",
         "ux-systems",
-        "player-journey-design"
+        "player-journey-design",
+        "debugging",
+        "technical-research",
+        "asset-pipeline",
+        "multiplayer-thinking"
       ],
       "notes": "Builds pages, interaction surfaces, UI structure, and player-facing layout for the evolving website and eventual launcher-grade experience.",
       "lastBrief": "",
@@ -135,9 +159,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-frontend/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-backend",
@@ -151,7 +177,9 @@
       "tools": [
         "workspace-read",
         "workspace-write",
-        "exec"
+        "exec",
+        "planning",
+        "web"
       ],
       "skills": [
         "api-design",
@@ -160,7 +188,14 @@
         "debugging",
         "persistence-design",
         "world-state-thinking",
-        "service-architecture"
+        "service-architecture",
+        "frontend-build",
+        "ui-styling",
+        "component-design",
+        "technical-research",
+        "rapid-prototyping",
+        "asset-pipeline",
+        "multiplayer-thinking"
       ],
       "notes": "Builds APIs, integrations, validation, persistence, and runtime support for the website system with a path toward persistent world services.",
       "lastBrief": "",
@@ -170,9 +205,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-backend/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-threejs",
@@ -186,7 +223,9 @@
       "tools": [
         "workspace-read",
         "workspace-write",
-        "exec"
+        "exec",
+        "planning",
+        "web"
       ],
       "skills": [
         "threejs",
@@ -195,7 +234,15 @@
         "scene-architecture",
         "world-streaming",
         "interaction-design",
-        "realtime-prototyping"
+        "realtime-prototyping",
+        "frontend-build",
+        "ui-styling",
+        "debugging",
+        "component-design",
+        "technical-research",
+        "rapid-prototyping",
+        "asset-pipeline",
+        "multiplayer-thinking"
       ],
       "notes": "Owns Three.js scenes, rendering pipelines, lighting, camera systems, and 3D interactions, with an eye toward explorable world-scale spaces.",
       "lastBrief": "",
@@ -205,9 +252,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-threejs/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-babylon",
@@ -221,7 +270,9 @@
       "tools": [
         "workspace-read",
         "workspace-write",
-        "exec"
+        "exec",
+        "planning",
+        "web"
       ],
       "skills": [
         "babylonjs",
@@ -230,7 +281,15 @@
         "scene-tooling",
         "engine-evaluation",
         "downloadable-world-thinking",
-        "realtime-systems"
+        "realtime-systems",
+        "frontend-build",
+        "ui-styling",
+        "debugging",
+        "component-design",
+        "technical-research",
+        "rapid-prototyping",
+        "asset-pipeline",
+        "multiplayer-thinking"
       ],
       "notes": "Evaluates and builds Babylon.js-based scene systems, engine comparisons, and performance alternatives for both browser and eventual downloadable world tracks.",
       "lastBrief": "",
@@ -240,9 +299,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-babylon/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-environment",
@@ -256,7 +317,9 @@
       "tools": [
         "workspace-read",
         "workspace-write",
-        "planning"
+        "planning",
+        "exec",
+        "web"
       ],
       "skills": [
         "environment-design",
@@ -265,7 +328,15 @@
         "visual-cohesion",
         "biome-thinking",
         "spatial-storytelling",
-        "content-scaling"
+        "content-scaling",
+        "frontend-build",
+        "ui-styling",
+        "debugging",
+        "component-design",
+        "technical-research",
+        "rapid-prototyping",
+        "asset-pipeline",
+        "multiplayer-thinking"
       ],
       "notes": "Shapes the evolving environment, mood, layout, props, and spatial storytelling so the website can grow naturally into a larger explorable world.",
       "lastBrief": "",
@@ -275,9 +346,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-environment/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-image",
@@ -291,7 +364,8 @@
       "tools": [
         "workspace-read",
         "planning",
-        "web"
+        "web",
+        "exec"
       ],
       "skills": [
         "concept-art-direction",
@@ -300,7 +374,14 @@
         "style-guides",
         "creative-discovery",
         "faction-style-development",
-        "world-culture-design"
+        "world-culture-design",
+        "deployment",
+        "maintenance",
+        "qa-testing",
+        "research",
+        "creative-support",
+        "worldbuilding-support",
+        "live-ops"
       ],
       "notes": "Creates image direction, concept prompts, mood boards, and references that help the team discover unknown visual directions without losing cohesion.",
       "lastBrief": "",
@@ -310,9 +391,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-image/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-github",
@@ -326,7 +409,8 @@
       "tools": [
         "workspace-read",
         "exec",
-        "planning"
+        "planning",
+        "web"
       ],
       "skills": [
         "git-ops",
@@ -334,7 +418,13 @@
         "deployment",
         "documentation",
         "build-pipeline-thinking",
-        "launcher-readiness"
+        "launcher-readiness",
+        "maintenance",
+        "qa-testing",
+        "research",
+        "creative-support",
+        "worldbuilding-support",
+        "live-ops"
       ],
       "notes": "Owns git status, commits, pushes, release notes, and launch coordination after verification passes, including future packaging readiness.",
       "lastBrief": "",
@@ -344,9 +434,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-github/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-maintenance",
@@ -360,7 +452,9 @@
       "tools": [
         "workspace-read",
         "workspace-write",
-        "exec"
+        "exec",
+        "planning",
+        "web"
       ],
       "skills": [
         "maintenance",
@@ -368,7 +462,12 @@
         "refactoring",
         "qa-testing",
         "system-hygiene",
-        "prototype-hardening"
+        "prototype-hardening",
+        "deployment",
+        "research",
+        "creative-support",
+        "worldbuilding-support",
+        "live-ops"
       ],
       "notes": "Keeps the codebase clean, removes dead files, fixes regressions, and improves the handoff quality between agents as the world grows more complex.",
       "lastBrief": "",
@@ -378,9 +477,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-maintenance/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-qa",
@@ -394,7 +495,8 @@
       "tools": [
         "workspace-read",
         "exec",
-        "planning"
+        "planning",
+        "web"
       ],
       "skills": [
         "qa-testing",
@@ -402,7 +504,13 @@
         "performance-audits",
         "release-readiness",
         "playability-review",
-        "stability-gating"
+        "stability-gating",
+        "deployment",
+        "maintenance",
+        "research",
+        "creative-support",
+        "worldbuilding-support",
+        "live-ops"
       ],
       "notes": "Runs the final checks, validates environment quality, and feeds failures back into the loop before launch, always protecting playability and stability.",
       "lastBrief": "",
@@ -412,9 +520,11 @@
       "workspacePath": "/home/user/kirapolis",
       "repoBranch": "",
       "memoryPath": "/home/user/kirapolis/data/agents/agent-qa/memory.db",
+      "personaId": "",
+      "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293018
+      "updatedAt": 1775174564779
     },
     {
       "id": "agent-postdeploy-monitor",
@@ -458,7 +568,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293019
+      "updatedAt": 1775174564780
     },
     {
       "id": "agent-visual-analyst",
@@ -502,7 +612,7 @@
       "usePersonaModel": true,
       "isManager": false,
       "createdAt": 1775173293018,
-      "updatedAt": 1775173293020
+      "updatedAt": 1775174564781
     }
   ]
 }

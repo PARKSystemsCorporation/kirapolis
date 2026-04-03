@@ -28,6 +28,8 @@ const dashboardStore = new DashboardStore(config.controlRoot);
 const progressionStore = new ProgressionStore(config.controlRoot);
 let learningLoop;
 let teamHeartbeat;
+let msgIdCounter = 0;
+function nextMsgId() { return `msg-${Date.now()}-${++msgIdCounter}`; }
 const experienceMemory = {
     agents: {},
     links: [],
@@ -153,8 +155,8 @@ async function createSystemBackupSnapshot() {
     return manifest;
 }
 async function resumeAutomationAfterReset(options) {
-    const heartbeatStatus = options?.heartbeatStatus || teamHeartbeat.getStatus();
-    const learningStatus = options?.learningStatus || learningLoop.getStatus();
+    const heartbeatStatus = options?.heartbeatStatus || (teamHeartbeat ? teamHeartbeat.getStatus() : { active: false });
+    const learningStatus = options?.learningStatus || (learningLoop ? learningLoop.getStatus() : { active: false });
     await progressionStore.ensureAgents(teamRegistry.list());
     await ensureDefaultGroupChat();
     await ensurePostDeployGroupChat();
@@ -1372,6 +1374,9 @@ async function autoPushAgentBranch(agent, taskTitle) {
         throw new Error(commitOutput || "git commit failed");
     }
     const branch = agent.repoBranch || (await runCommand("git", ["branch", "--show-current"], agent.workspacePath)).stdout.trim();
+    if (!branch) {
+        throw new Error("Could not determine git branch for push");
+    }
     const push = await runCommand("git", ["push", "-u", "origin", branch], agent.workspacePath);
     if (push.code !== 0) {
         throw new Error(`${push.stdout}${push.stderr}`.trim() || "git push failed");
@@ -1384,7 +1389,7 @@ async function cleanupDeletableChats() {
     const removable = state.messenger.chats.filter((chat) => {
         if (chat.origin === "user")
             return false;
-        const lastMessageAt = chat.messages[chat.messages.length - 1]?.createdAt || 0;
+        const lastMessageAt = Array.isArray(chat.messages) && chat.messages.length ? (chat.messages[chat.messages.length - 1]?.createdAt || 0) : 0;
         return chat.lastReadAt >= lastMessageAt && lastMessageAt > 0 && now - lastMessageAt > 10 * 60 * 1000;
     });
     if (!removable.length) {
@@ -1680,7 +1685,7 @@ async function appendChatMessageById(chatId, message) {
         return;
     }
     chat.messages.push({
-        id: message.id || `msg-${Date.now()}`,
+        id: message.id || nextMsgId(),
         role: message.role || "assistant",
         author: message.author || "Agent",
         content: message.content || "",
@@ -2062,14 +2067,13 @@ async function executeAgentPrompt(agentId, prompt, mode = "dispatch") {
         scopeType: "agent",
         scopeId: agent.id
     });
-    let updatedAgent = await teamRegistry.recordDispatch(agent.id, prompt, result.content || "");
-    if (result.model && updatedAgent.model !== result.model) {
-        updatedAgent = await teamRegistry.upsert({
-            id: updatedAgent.id,
+    if (result.model && agent.model !== result.model) {
+        await teamRegistry.upsert({
+            id: agent.id,
             model: result.model
         });
-        updatedAgent = await teamRegistry.recordDispatch(agent.id, prompt, result.content || "");
     }
+    let updatedAgent = await teamRegistry.recordDispatch(agent.id, prompt, result.content || "");
     await recordAgentActivity(updatedAgent, mode, "done", agentActivityTitles(updatedAgent.name, mode).done, (result.content || "").slice(0, 320));
     await agentBrain.recordEpisode({
         title: `${updatedAgent.name} ${mode}`,
@@ -2544,7 +2548,7 @@ class TeamHeartbeat {
                 nextRunAt: null,
                 running: false
             });
-            void teamRegistry.upsert({ id: agentId, state: "idle", presence: "idle" });
+            teamRegistry.upsert({ id: agentId, state: "idle", presence: "idle" }).catch((error) => console.warn("[heartbeat] failed to reset agent state:", agentId, error instanceof Error ? error.message : String(error)));
         }
         void dashboardStore.addActivity({
             source: "autonomy",
@@ -4597,6 +4601,10 @@ await ensurePostDeploySpecialists();
 await progressionStore.ensureAgents(teamRegistry.list());
 await dashboardStore.init();
 for (const task of dashboardStore.getState().tasks.filter((entry) => entry.status === "done" && entry.agentId)) {
+    const existing = progressionStore.get(task.agentId);
+    if (existing && existing.rewardTaskIds.includes(String(task.id))) {
+        continue;
+    }
     await awardAgentTaskCompletion(task.agentId, task.id, `${task.title}\n${task.detail || ""}`);
 }
 await migrateLegacyGroupArtifacts();

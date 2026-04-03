@@ -20,7 +20,12 @@ export class KiraBrain {
         this.sql = await initSqlJs({});
         fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
         if (fs.existsSync(this.dbPath)) {
-            this.db = new this.sql.Database(fs.readFileSync(this.dbPath));
+            try {
+                this.db = new this.sql.Database(fs.readFileSync(this.dbPath));
+            } catch (error) {
+                console.warn("[brain] corrupt db, creating fresh:", error instanceof Error ? error.message : String(error));
+                this.db = new this.sql.Database();
+            }
         }
         else {
             this.db = new this.sql.Database();
@@ -395,7 +400,7 @@ export class KiraBrain {
         const pinned = input.pinned ? 1 : 0;
         const existing = this.get(`SELECT * FROM memory_items WHERE pk = ?`, [pk]);
         if (existing) {
-            const changed = normalizeKey(`${existing.summary || ""} ${existing.detail || ""}`) !== normalizeKey(`${summary} ${detail}`);
+            const changed = normalizeKey(`${existing.subject || ""} ${existing.summary || ""} ${existing.detail || ""}`) !== normalizeKey(`${subject} ${summary} ${detail}`);
             let historicalId = null;
             if (changed) {
                 historicalId = uuidv4();
@@ -429,7 +434,7 @@ export class KiraBrain {
                 scopeType,
                 scopeId,
                 status,
-                pinned || Number(existing.pinned || 0),
+                input.pinned !== undefined ? (input.pinned ? 1 : 0) : Number(existing.pinned || 0),
                 String(input.sourceRole || existing.source_role || "system"),
                 Math.max(Number(existing.confidence || 0), Number(input.confidence || 0.5)),
                 Math.max(Number(existing.salience || 0), Number(input.salience || 0.5)),
@@ -671,7 +676,8 @@ export class KiraBrain {
             stmt.free();
             return rows;
         }
-        catch {
+        catch (error) {
+            console.warn("[brain] query error:", sql, error instanceof Error ? error.message : String(error));
             return [];
         }
     }

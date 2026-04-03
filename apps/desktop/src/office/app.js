@@ -72,6 +72,7 @@
     },
   };
 
+  let refreshSeq = 0;
   const $ = (id) => document.getElementById(id);
   if (embedMode) {
     document.body.classList.add("embed-mode");
@@ -1595,9 +1596,10 @@
   }
 
   function renderRoomPreview() {
-    const selectedChat = chatById(state.selectedChatId) || state.chats[0] || null;
-    if (selectedChat && !state.selectedChatId) {
-      state.selectedChatId = selectedChat.id;
+    let selectedChat = chatById(state.selectedChatId);
+    if (!selectedChat) {
+      selectedChat = state.chats[0] || null;
+      state.selectedChatId = selectedChat ? selectedChat.id : null;
     }
     const previousTranscript = $("room-preview-body")?.querySelector(".room-transcript");
     const captureScrollIntent = (container) => {
@@ -1882,14 +1884,17 @@
   }
 
   async function refreshOffice() {
+    const seq = ++refreshSeq;
     await ensureOfficeAssets();
     const [officeResponse, signalResponse] = await Promise.all([
       fetch("/api/team/office"),
       fetch("/api/experience/signals"),
     ]);
+    if (seq !== refreshSeq) return;
     await refreshWorkspaceIndexes();
     const data = await officeResponse.json();
     const signals = await signalResponse.json();
+    if (seq !== refreshSeq) return;
     state.agents = data.agents || [];
     state.tasks = data.tasks || [];
     state.activity = data.activity || [];

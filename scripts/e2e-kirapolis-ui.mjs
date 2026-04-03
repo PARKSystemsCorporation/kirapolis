@@ -7,10 +7,21 @@ const root = process.cwd();
 const outDir = path.join(root, "tmp", "e2e-ui");
 fs.mkdirSync(outDir, { recursive: true });
 
-const chromeCandidates = [
-  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-  path.join(process.env.USERPROFILE || "", ".agent-browser", "browsers", "chrome-147.0.7727.24", "chrome-win64", "chrome.exe"),
-].filter(Boolean);
+const chromeCandidates = process.platform === "win32"
+  ? [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      path.join(process.env.USERPROFILE || "", ".agent-browser", "browsers", "chrome-147.0.7727.24", "chrome-win64", "chrome.exe"),
+    ].filter(Boolean)
+  : process.platform === "darwin"
+    ? [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      ]
+    : [
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+      ];
 
 function resolveChrome() {
   const match = chromeCandidates.find((candidate) => fs.existsSync(candidate));

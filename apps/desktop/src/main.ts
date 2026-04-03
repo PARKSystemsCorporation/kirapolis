@@ -50,7 +50,10 @@ function describeError(error) {
 }
 async function probeJson(url) {
     try {
-        const response = await fetch(url);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
         if (!response.ok) {
             return { ok: false, detail: `${response.status} ${response.statusText}` };
         }
@@ -251,6 +254,7 @@ function startAgent() {
     agentProcess.on("exit", (code) => {
         broadcastAgentLog(`[desktop] agent exited with code ${code ?? 0}\n`);
         agentProcess = null;
+        agentLog = "";
     });
 }
 function stopAgent() {
@@ -356,7 +360,11 @@ ipcMain.handle("desktop:open-path", async (_event, targetPath) => {
     return true;
 });
 ipcMain.handle("desktop:open-url", async (_event, url) => {
-    await shell.openExternal(url);
+    const parsed = String(url || "").trim();
+    if (!/^https?:\/\//i.test(parsed)) {
+        return false;
+    }
+    await shell.openExternal(parsed);
     return true;
 });
 ipcMain.handle("desktop:open-vscodium", async () => {

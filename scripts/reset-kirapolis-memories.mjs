@@ -67,6 +67,12 @@ async function main() {
     const target = path.join(backupDir, relative.replace(/[\\\/:]/g, "__"));
     await fs.copyFile(file, target);
     if (args.apply) {
+      const srcStat = await fs.stat(file);
+      const dstStat = await fs.stat(target);
+      if (dstStat.size !== srcStat.size) {
+        console.warn(`[warn] backup size mismatch for ${relative}, skipping delete`);
+        continue;
+      }
       await fs.rm(file, { force: true });
     }
   }

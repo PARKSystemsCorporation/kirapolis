@@ -130,6 +130,7 @@
           lastError = error;
         }
       }
+      monacoPromise = null;
       throw lastError || new Error("Unable to load Monaco editor.");
     })();
     return monacoPromise;
