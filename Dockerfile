@@ -1,0 +1,18 @@
+FROM node:22-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/desktop/package.json apps/desktop/package.json
+COPY services/agent/package.json services/agent/package.json
+RUN npm ci --ignore-scripts --omit=optional 2>/dev/null || npm install --ignore-scripts --omit=optional
+COPY services/agent/ services/agent/
+COPY apps/desktop/src/office/ apps/desktop/src/office/
+COPY apps/desktop/src/shared/ apps/desktop/src/shared/
+COPY data/ data/
+COPY scripts/ scripts/
+COPY .env.example .env.example
+RUN npx tsc -p services/agent/tsconfig.json
+ENV NODE_ENV=production
+ENV KIRA_HOST=0.0.0.0
+ENV KIRA_PORT=4317
+EXPOSE 4317
+CMD ["node", "services/agent/dist/server.js"]

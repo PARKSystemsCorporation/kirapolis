@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.git/
+.env
+.env.local
+tmp/
+arc/
+coverage/
+*.log
+data/backups/
+data/**/*.db
+data/groups/
+data/model-neutralization/
+data/persona-training/
+data/persona-training-runs/

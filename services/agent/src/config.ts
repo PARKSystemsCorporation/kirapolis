@@ -15,7 +15,7 @@ export function getConfig() {
         projectRoot,
         workspaceRoot: projectRoot,
         publicBaseUrl,
-        shell: process.env.ComSpec || "powershell.exe",
+        shell: process.env.ComSpec || process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/sh"),
         provider: process.env.KIRA_PROVIDER || "ollama",
         ollamaBaseUrl: process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434",
         openClawBaseUrl: process.env.OPENCLAW_BASE_URL || "http://127.0.0.1:11434",
