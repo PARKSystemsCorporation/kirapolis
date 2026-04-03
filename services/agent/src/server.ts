@@ -5225,13 +5225,15 @@ async function bootstrapServer() {
     logStartup("runtime:constructors");
     learningLoop = new KiraLearningLoop(() => ({ ...config, ...runtimeSettings }), managerBrain);
     teamHeartbeat = new TeamHeartbeat();
-    startupState.phase = "autonomy:default-start";
-    logStartup("autonomy:default-start", "starting default autonomy loop");
-    await teamHeartbeat.start(60000, 8);
     startupState.phase = "ready";
     startupState.ready = true;
     startupState.finishedAt = Date.now();
     logStartup("bootstrap:ready", `/app and /health available`);
+    // Start autonomy after marking ready so the API is available even if the heartbeat fails
+    logStartup("autonomy:default-start", "starting default autonomy loop (non-blocking)");
+    void teamHeartbeat.start(60000, 8).catch((error) => {
+        console.error("[startup] autonomy default-start failed", error);
+    });
 }
 logStartup("listen:start");
 const server = app.listen(config.port, config.host, () => {
