@@ -128,12 +128,15 @@ export class KiraBrain {
         const words = text.toLowerCase().replace(/[^\w\s]/g, " ").split(/\s+/).filter((w) => w.length > 2 && !STOPS.has(w));
         if (!words.length)
             return "";
+        const queryWords = words.slice(0, 6);
+        const placeholders = queryWords.map(() => "?").join(", ");
         const seen = new Map();
-        for (const word of words.slice(0, 6)) {
-            for (const tier of ["long_term", "medium", "short"]) {
-                for (const row of this.query(`SELECT * FROM ${tier} WHERE w1 = ? OR w2 = ? ORDER BY score DESC LIMIT 6`, [word, word])) {
-                    seen.set(String(row.id), { ...row, tier });
-                }
+        for (const tier of ["long_term", "medium", "short"]) {
+            for (const row of this.query(
+                `SELECT * FROM ${tier} WHERE w1 IN (${placeholders}) OR w2 IN (${placeholders}) ORDER BY score DESC LIMIT 36`,
+                [...queryWords, ...queryWords]
+            )) {
+                seen.set(String(row.id), { ...row, tier });
             }
         }
         const correlations = [...seen.values()].slice(0, 10);
@@ -187,28 +190,46 @@ export class KiraBrain {
         if (tokens.length < 2)
             return;
         const now = Date.now();
+        const snippet = text.slice(0, 200);
+        // Pre-collect all PKs we'll need so we can batch-fetch them before the loop
+        const pairPks: string[] = [];
+        for (let i = 0; i < tokens.length; i++) {
+            for (let j = i + 1; j < Math.min(i + 5, tokens.length); j++) {
+                pairPks.push([tokens[i].word, tokens[j].word].sort().join("_"));
+            }
+        }
+        // Batch-fetch all existing entries across tiers in 3 queries instead of 3 per pair
+        const existingMap = new Map<string, { tier: string; row: any }>();
+        for (const tier of ["long_term", "medium", "short"]) {
+            const placeholders = pairPks.map(() => "?").join(", ");
+            for (const row of this.query(`SELECT * FROM ${tier} WHERE pk IN (${placeholders})`, pairPks)) {
+                existingMap.set(String(row.pk), { tier, row });
+            }
+        }
         for (let i = 0; i < tokens.length; i++) {
             for (let j = i + 1; j < Math.min(i + 5, tokens.length); j++) {
                 const a = tokens[i];
                 const b = tokens[j];
                 const pk = [a.word, b.word].sort().join("_");
                 const sc = score(a.spos, b.spos, j - i - 1);
-                const found = this.findExisting(pk);
+                const found = existingMap.get(pk) || null;
                 if (found) {
                     const newScore = Math.min(1, Number(found.row.score) + sc);
                     const newTier = tierFor(newScore);
                     this.run(`DELETE FROM ${found.tier} WHERE pk = ?`, [pk]);
                     this.run(`INSERT OR REPLACE INTO ${newTier} VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
                         found.row.id, pk, a.word, b.word, a.pos, b.pos, `${a.spos}+${b.spos}`,
-                        text.slice(0, 200), newScore, Number(found.row.reinf) + 1, idx + (newTier === "long_term" ? 300 : newTier === "medium" ? 200 : 100),
+                        snippet, newScore, Number(found.row.reinf) + 1, idx + (newTier === "long_term" ? 300 : newTier === "medium" ? 200 : 100),
                         idx, found.row.created, now
                     ]);
+                    // Update the map so subsequent pairs referencing the same pk see the new tier
+                    existingMap.set(pk, { tier: newTier, row: { ...found.row, score: newScore, tier: newTier } });
                 }
                 else {
                     const newTier = tierFor(sc);
                     this.run(`INSERT OR REPLACE INTO ${newTier} VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
                         uuidv4(), pk, a.word, b.word, a.pos, b.pos, `${a.spos}+${b.spos}`,
-                        text.slice(0, 200), sc, 1, idx + (newTier === "long_term" ? 300 : newTier === "medium" ? 200 : 100),
+                        snippet, sc, 1, idx + (newTier === "long_term" ? 300 : newTier === "medium" ? 200 : 100),
                         idx, now, now
                     ]);
                 }

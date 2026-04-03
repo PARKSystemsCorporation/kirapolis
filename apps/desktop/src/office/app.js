@@ -229,14 +229,15 @@
 
   function getZoneMetrics() {
     const signalSummary = state.signals.summary || {};
-    const byRole = {
-      executive: state.agents.filter((agent) => agent.role === "executive"),
-      coder: state.agents.filter((agent) => agent.role === "coder"),
-      runner: state.agents.filter((agent) => agent.role !== "executive" && agent.role !== "coder"),
-    };
-
-    const commandLoad = byRole.executive.filter(isAgentActive).length;
-    const buildLoad = byRole.coder.reduce((total, agent) => total + tasksForAgent(agent.id).filter((task) => task.status === "doing").length, 0);
+    let commandLoad = 0;
+    let buildLoad = 0;
+    for (const agent of state.agents) {
+      if (agent.role === "executive") {
+        if (isAgentActive(agent)) commandLoad++;
+      } else if (agent.role === "coder") {
+        buildLoad += tasksForAgent(agent.id).filter((task) => task.status === "doing").length;
+      }
+    }
     const commsHeat = state.chats.reduce((total, chat) => total + computeChatSignal(chat).count, 0);
 
     return {
@@ -263,19 +264,33 @@
     return state.signals.blockedAgentIds.includes(String(agentId || ""));
   }
 
+  let _visualProfileCache = new Map();
+  let _visualProfileAgentKey = "";
+
   function getAgentVisualProfile(agent) {
+    const agentKey = state.agents.map((a) => String(a.id || a.name || "")).join(",");
+    if (agentKey !== _visualProfileAgentKey) {
+      _visualProfileCache = new Map();
+      _visualProfileAgentKey = agentKey;
+    }
+    const agentId = String(agent.id || agent.name || "");
+    if (_visualProfileCache.has(agentId)) {
+      return _visualProfileCache.get(agentId);
+    }
     const orderedIds = [...state.agents]
       .map((entry) => String(entry.id || entry.name || ""))
       .sort((left, right) => left.localeCompare(right));
-    const ordinal = Math.max(0, orderedIds.indexOf(String(agent.id || agent.name || "")));
+    const ordinal = Math.max(0, orderedIds.indexOf(agentId));
     const seed = hashSeed(agent.progression?.spriteSeed || agent.id || agent.name);
-    return {
+    const profile = {
       spriteIndex: ordinal % 6,
       hue: ((ordinal * 31) + (seed % 19)) % 360,
       accentHue: ((ordinal * 53) + 24) % 360,
       badge: ["CEO", "OPS", "UX", "SYS", "WEB", "AI", "PM", "DEV", "RUN", "ART", "QA", "LAB"][ordinal % 12],
       mirrored: ordinal % 2 === 1,
     };
+    _visualProfileCache.set(agentId, profile);
+    return profile;
   }
 
   function characterSpritePath(agent) {
@@ -325,7 +340,7 @@
     ].join(";");
   }
 
-  function getAgentNotification(agent) {
+  function getAgentNotification(agent, agentTasks) {
     const pulse = (state.signals.pulseEvents || []).find((entry) => entry.agentId === agent.id);
     if (pulse?.title) {
       return {
@@ -349,7 +364,8 @@
         tone: String(behavior.behavior || "info").toLowerCase(),
       };
     }
-    const doingCount = tasksForAgent(agent.id).filter((task) => task.status === "doing").length;
+    const tasks = agentTasks || tasksForAgent(agent.id);
+    const doingCount = tasks.filter((task) => task.status === "doing").length;
     if (doingCount > 1) {
       return { text: `${doingCount} active tasks`, tone: "active" };
     }
@@ -602,9 +618,10 @@
   }
 
   function applyAgentMotion(agentId) {
-    const node = document.querySelector(`.agent-node[data-agent-id="${CSS.escape(agentId)}"]`);
     const motion = state.motion.agents[agentId];
-    if (!node || !motion) return;
+    if (!motion) return;
+    const node = motion.element || document.querySelector(`.agent-node[data-agent-id="${CSS.escape(agentId)}"]`);
+    if (!node) return;
     node.style.left = `${motion.x}px`;
     node.style.top = `${motion.y}px`;
     node.dataset.intent = motion.intent || "idle";
@@ -1242,8 +1259,9 @@
     const placements = getAgentPlacements();
     state.agents.forEach((agent) => {
       const anchor = placements.get(agent.id) || { col: 2, row: 12 };
-      const doingCount = tasksForAgent(agent.id).filter((task) => task.status === "doing").length;
-      const blockedCount = tasksForAgent(agent.id).filter((task) => task.status === "blocked").length;
+      const agentTasks = tasksForAgent(agent.id);
+      const doingCount = agentTasks.filter((task) => task.status === "doing").length;
+      const blockedCount = agentTasks.filter((task) => task.status === "blocked").length;
       const stateClass = blockedCount || isBlockedAgent(agent.id) ? "blocked" : isAgentWaiting(agent) ? "waiting" : isAgentActive(agent) ? "active-state" : "idle-state";
       const syncClass = isPromotedAgent(agent.id) ? "sync-promo" : isBlockedAgent(agent.id) ? "sync-blocked" : "";
       const node = document.createElement("button");
@@ -1260,7 +1278,7 @@
       node.style.setProperty("--delay", `${(hashSeed(agent.id) % 7) * 0.12}s`);
       const visual = getAgentVisualProfile(agent);
       const motion = state.motion.agents[agent.id] || null;
-      const notice = getAgentNotification(agent);
+      const notice = getAgentNotification(agent, agentTasks);
       node.style.setProperty("--hue", `${visual.hue}deg`);
       node.style.setProperty("--accent-hue", `${visual.accentHue}deg`);
       node.dataset.variant = visual.badge.toLowerCase();
@@ -1302,6 +1320,9 @@
         node.addEventListener("pointercancel", clear);
       });
       scene.appendChild(node);
+      if (state.motion.agents[agent.id]) {
+        state.motion.agents[agent.id].element = node;
+      }
     });
   }
 
