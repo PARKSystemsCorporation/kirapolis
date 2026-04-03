@@ -2263,6 +2263,10 @@
                     <div class="sub">Each visible page should live in a folder whose name matches the final URL slug. Inside that folder, use <span class="mono">index.html</span> for the page entry unless the framework intentionally defines a different entry file.</div>
                   </div>
                   <div class="guide-card">
+                    <strong>Page Operations loop</strong>
+                    <div class="sub">Page Steward, builders, QA, and Post Deploy now share a standing route-coverage loop: chat creates context, context becomes route work, missing pages stay live with a fallback, and post-prod verifies the real page after release.</div>
+                  </div>
+                  <div class="guide-card">
                     <strong>Keep this path stable</strong>
                     <div class="sub">Changing the project root changes where agents read, write, build, and deploy. Save it once, then leave it steady unless the whole project moves.</div>
                   </div>
@@ -3930,8 +3934,9 @@
       const autonomyActive = Boolean(readiness.autonomy?.active);
       const repoOk = Boolean(readiness.repo?.ok && readiness.repo?.remote);
       const remoteOk = Array.isArray(readiness.remoteUrls) && readiness.remoteUrls.length > 0;
+      const pageOpsOk = Boolean(readiness.pageOps?.guaranteedFallback && Number(readiness.pageOps?.totalRoutes || 0) >= 1);
       const directorLabel = readiness.director?.label || "No director state";
-      const level = autonomyActive && repoOk ? "Ready" : "Needs Review";
+      const level = autonomyActive && repoOk && pageOpsOk ? "Ready" : "Needs Review";
       badgeNode.textContent = level;
       summaryNode.textContent = `${directorLabel} | ${readiness.summary?.activeAgents || 0} active agents | ${readiness.summary?.doingTasks || 0} active tasks | ${autonomyActive ? "autonomy running" : "autonomy stopped"}.`;
       listNode.innerHTML = `
@@ -3949,6 +3954,11 @@
           <div class="label">Remote</div>
           <div class="runtime-note">${escapeHtml(remoteOk ? readiness.remoteUrls[0] : "No network URL detected.")}</div>
           <div class="sub">${escapeHtml(readiness.websiteProjectPath || "")}</div>
+        </div>
+        <div class="detail-card">
+          <div class="label">Page Ops</div>
+          <div class="runtime-note">${escapeHtml(readiness.pageOps?.totalRoutes ? `${readiness.pageOps.totalRoutes} route entrypoint(s)` : "No route entrypoints indexed yet.")}</div>
+          <div class="sub">${escapeHtml(readiness.pageOps?.guaranteedFallback ? "Generated fallbacks stay live while Page Operations fills the real page in." : "Fallback guarantee not active.")}</div>
         </div>
       `;
     }

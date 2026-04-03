@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kirapolis Workspace Surface</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f5efe8;
+      --muted: #d8c6b4;
+      --accent: #ff9d4d;
+      --panel: rgba(14, 10, 8, 0.92);
+      --line: rgba(255, 157, 77, 0.24);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top, rgba(255,157,77,0.24), transparent 40%),
+        linear-gradient(180deg, #140d08 0%, #050505 100%);
+      padding: 32px;
+      display: grid;
+      place-items: center;
+    }
+    main {
+      width: min(980px, 100%);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: var(--panel);
+      padding: 32px;
+      box-shadow: 0 28px 90px rgba(0,0,0,0.45);
+    }
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 12px;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(38px, 6vw, 62px);
+      line-height: 0.98;
+    }
+    p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 68ch;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-top: 26px;
+    }
+    .card {
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+      border-radius: 20px;
+      padding: 18px;
+    }
+    strong { display: block; margin-bottom: 8px; }
+    code {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 2px 8px;
+    }
+    a {
+      color: var(--ink);
+      text-decoration: none;
+      display: inline-flex;
+      margin-top: 22px;
+      padding: 12px 16px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #ff9d4d, #ffd37a);
+      color: #1a120b;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">Kirapolis Page Operations</div>
+    <h1>The root URL stays live by default.</h1>
+    <p>This default workspace entrypoint exists so the team always has a functioning page artifact at the project root, even before route-specific pages are fully built.</p>
+    <p>Routing standard: each visible page should live in a folder whose name matches the final URL slug, with <code>index.html</code> inside that folder unless a framework intentionally defines a different entry file.</p>
+    <div class="grid">
+      <section class="card">
+        <strong>Loop behavior</strong>
+        <span>Agents read chat context, turn it into route work, publish artifacts, and report back into the team room so the loop keeps compounding.</span>
+      </section>
+      <section class="card">
+        <strong>Page coverage</strong>
+        <span>When a page file is missing, Kirapolis serves a generated fallback instead of a dead route and pushes the gap back into Page Operations.</span>
+      </section>
+      <section class="card">
+        <strong>Post-prod responsibility</strong>
+        <span>Post Deploy verifies the live route after release and escalates when the page does not come back healthy.</span>
+      </section>
+    </div>
+    <a href="/app">Open Command Surface</a>
+  </main>
+</body>
+</html>

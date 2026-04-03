@@ -248,11 +248,14 @@ async function resumeAutomationAfterReset(options) {
     const heartbeatStatus = options?.heartbeatStatus || (teamHeartbeat ? teamHeartbeat.getStatus() : { active: false });
     const learningStatus = options?.learningStatus || (learningLoop ? learningLoop.getStatus() : { active: false });
     await progressionStore.ensureAgents(teamRegistry.list());
+    await ensurePageOperationsSpecialists();
     await ensurePostDeploySpecialists();
     await ensureLocalSpecialists();
     await ensureDefaultGroupChat();
+    await ensurePageOperationsGroupChat();
     await ensurePostDeployGroupChat();
     await ensureLocalWorkbenchGroupChat();
+    await syncPageOperationsLoop();
     if (heartbeatStatus.active) {
         await teamHeartbeat.start(heartbeatStatus.intervalMs, heartbeatStatus.maxAgentsPerCycle);
     }
@@ -1894,6 +1897,16 @@ const PROJECT_FILE_EXTENSIONS = new Set([
     ".mdx", ".xml"
 ]);
 const NOTE_FILE_EXTENSIONS = new Set([".md", ".txt"]);
+const PROJECT_ROUTE_SKIP_DIRS = new Set([
+    ...WORKSPACE_SKIP_DIRS,
+    "apps",
+    "services",
+    "scripts",
+    "docs",
+    "data",
+    "extensions",
+    "tmp"
+]);
 function shouldIncludeWorkspaceFile(relativePath) {
     const normalized = relativePath.replace(/\\/g, "/");
     if (!normalized || normalized.startsWith("data/groups/") || normalized.startsWith("data/agents/")) {
@@ -1987,6 +2000,366 @@ async function deleteWorkspacePaths(pathsToDelete) {
     }
     return deleted;
 }
+function normalizeProjectRoute(input = "/") {
+    const compact = `/${String(input || "/")
+        .replace(/\\/g, "/")
+        .replace(/^\/+/, "")
+        .replace(/\/+/g, "/")}`;
+    if (compact === "/") {
+        return compact;
+    }
+    return compact.replace(/\/$/, "") || "/";
+}
+function routeToRelativeIndexPath(route) {
+    const normalizedRoute = normalizeProjectRoute(route);
+    return normalizedRoute === "/"
+        ? "index.html"
+        : `${normalizedRoute.slice(1)}/index.html`;
+}
+function routeFromRelativeIndexPath(relativePath) {
+    const normalized = String(relativePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!normalized || normalized === "index.html") {
+        return "/";
+    }
+    return `/${normalized.replace(/\/index\.html$/i, "").replace(/^\/+/, "")}`;
+}
+function buildProjectRouteUrl(baseUrl, route) {
+    const normalizedBase = String(baseUrl || "").trim();
+    if (!normalizedBase) {
+        return "";
+    }
+    const parsed = new URL(normalizedBase.includes("://") ? normalizedBase : `https://${normalizedBase}`);
+    parsed.pathname = normalizeProjectRoute(route);
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+}
+function createProjectRouteFallbackHtml(route, reason = "") {
+    const normalizedRoute = normalizeProjectRoute(route);
+    const relativePath = routeToRelativeIndexPath(normalizedRoute);
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kirapolis Route Placeholder</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(255,153,51,0.18), transparent 42%),
+        linear-gradient(180deg, #120b07 0%, #070707 100%);
+      color: #f5efe8;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .shell {
+      width: min(760px, 100%);
+      border: 1px solid rgba(255,153,51,0.28);
+      background: rgba(14, 10, 8, 0.92);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.45);
+      border-radius: 24px;
+      padding: 28px;
+    }
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 12px;
+      color: #ffad66;
+      margin-bottom: 10px;
+    }
+    h1 { margin: 0 0 12px; font-size: 30px; line-height: 1.1; }
+    p { color: #d6c3b2; line-height: 1.55; }
+    code {
+      display: inline-block;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 2px 8px;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="eyebrow">Route Coverage Active</div>
+    <h1>This URL is online while the page artifact catches up</h1>
+    <p>Kirapolis intercepted <code>${normalizedRoute}</code> and kept it live with a generated fallback so the route never collapses into a dead page.</p>
+    <p>Expected file path: <code>${config.projectRoot.replace(/\\/g, "/")}/${relativePath}</code></p>
+    <p>${reason || "Page Operations will feed this route back into the team loop so the responsible agents can replace the placeholder with a real page."}</p>
+  </main>
+</body>
+</html>`;
+}
+function createDefaultProjectIndexHtml() {
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kirapolis Workspace Surface</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f5efe8;
+      --muted: #d8c6b4;
+      --accent: #ff9d4d;
+      --panel: rgba(14, 10, 8, 0.92);
+      --line: rgba(255, 157, 77, 0.24);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top, rgba(255,157,77,0.24), transparent 40%),
+        linear-gradient(180deg, #140d08 0%, #050505 100%);
+      padding: 32px;
+      display: grid;
+      place-items: center;
+    }
+    main {
+      width: min(980px, 100%);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: var(--panel);
+      padding: 32px;
+      box-shadow: 0 28px 90px rgba(0,0,0,0.45);
+    }
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 12px;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(38px, 6vw, 62px);
+      line-height: 0.98;
+    }
+    p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 68ch;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-top: 26px;
+    }
+    .card {
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+      border-radius: 20px;
+      padding: 18px;
+    }
+    strong { display: block; margin-bottom: 8px; }
+    code {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 2px 8px;
+    }
+    a {
+      color: var(--ink);
+      text-decoration: none;
+      display: inline-flex;
+      margin-top: 22px;
+      padding: 12px 16px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #ff9d4d, #ffd37a);
+      color: #1a120b;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">Kirapolis Page Operations</div>
+    <h1>The root URL stays live by default.</h1>
+    <p>This default workspace entrypoint exists so the team always has a functioning page artifact at the project root, even before route-specific pages are fully built.</p>
+    <p>Routing standard: each visible page should live in a folder whose name matches the final URL slug, with <code>index.html</code> inside that folder unless a framework intentionally defines a different entry file.</p>
+    <div class="grid">
+      <section class="card">
+        <strong>Loop behavior</strong>
+        <span>Agents read chat context, turn it into route work, publish artifacts, and report back into the team room so the loop keeps compounding.</span>
+      </section>
+      <section class="card">
+        <strong>Page coverage</strong>
+        <span>When a page file is missing, Kirapolis serves a generated fallback instead of a dead route and pushes the gap back into Page Operations.</span>
+      </section>
+      <section class="card">
+        <strong>Post-prod responsibility</strong>
+        <span>Post Deploy verifies the live route after release and escalates when the page does not come back healthy.</span>
+      </section>
+    </div>
+    <a href="/app">Open Command Surface</a>
+  </main>
+</body>
+</html>`;
+}
+async function ensureProjectRootEntrypoint() {
+    const rootIndexPath = path.join(config.projectRoot, "index.html");
+    if (await pathExists(rootIndexPath)) {
+        return {
+            route: "/",
+            relativePath: "index.html",
+            absolutePath: rootIndexPath,
+            created: false,
+            generated: false
+        };
+    }
+    await fs.mkdir(config.projectRoot, { recursive: true });
+    await fs.writeFile(rootIndexPath, createDefaultProjectIndexHtml(), "utf8");
+    return {
+        route: "/",
+        relativePath: "index.html",
+        absolutePath: rootIndexPath,
+        created: true,
+        generated: true
+    };
+}
+async function collectProjectRouteEntries(rootPath = config.projectRoot, currentPath = rootPath, depth = 0, results = []) {
+    if (depth > 5) {
+        return results;
+    }
+    let entries;
+    try {
+        entries = await fs.readdir(currentPath, { withFileTypes: true });
+    }
+    catch {
+        return results;
+    }
+    for (const entry of entries) {
+        const absolutePath = path.join(currentPath, entry.name);
+        const relativePath = path.relative(rootPath, absolutePath).replace(/\\/g, "/");
+        if (entry.isDirectory()) {
+            if (PROJECT_ROUTE_SKIP_DIRS.has(entry.name)) {
+                continue;
+            }
+            await collectProjectRouteEntries(rootPath, absolutePath, depth + 1, results);
+            continue;
+        }
+        if (entry.name.toLowerCase() !== "index.html") {
+            continue;
+        }
+        results.push({
+            route: routeFromRelativeIndexPath(relativePath),
+            relativePath,
+            absolutePath
+        });
+        if (results.length >= 64) {
+            return results;
+        }
+    }
+    return results;
+}
+async function resolveProjectExperienceTarget(route) {
+    const normalizedRoute = normalizeProjectRoute(route);
+    const relativeIndexPath = routeToRelativeIndexPath(normalizedRoute);
+    const absoluteIndexPath = path.resolve(config.projectRoot, relativeIndexPath);
+    const relativeToRoot = path.relative(config.projectRoot, absoluteIndexPath);
+    const exists = !relativeToRoot.startsWith("..")
+        && !path.isAbsolute(relativeToRoot)
+        && (await pathExists(absoluteIndexPath));
+    return {
+        route: normalizedRoute,
+        relativePath: relativeIndexPath,
+        absolutePath: absoluteIndexPath,
+        exists
+    };
+}
+async function buildProjectPageOpsStatus(baseUrl = "") {
+    const ensuredRoot = await ensureProjectRootEntrypoint();
+    const entries = await collectProjectRouteEntries();
+    const routes = Array.from(new Map(entries.map((entry) => [entry.route, entry])).values())
+        .sort((left, right) => left.route.localeCompare(right.route))
+        .map((entry) => ({
+        route: entry.route,
+        relativePath: entry.relativePath,
+        absolutePath: entry.absolutePath,
+        liveUrl: buildProjectRouteUrl(baseUrl, entry.route)
+    }));
+    return {
+        rule: getPageStructureRule(),
+        guaranteedFallback: true,
+        rootEntrypoint: {
+            route: ensuredRoot.route,
+            relativePath: ensuredRoot.relativePath,
+            absolutePath: ensuredRoot.absolutePath,
+            generated: ensuredRoot.generated
+        },
+        totalRoutes: routes.length,
+        routes,
+        stewardAgentIds: getPageOperationsAgentIds()
+    };
+}
+function summarizePageOpsRoutes(pageOps) {
+    const routes = Array.isArray(pageOps?.routes) ? pageOps.routes : [];
+    if (!routes.length) {
+        return "No route entrypoints discovered yet.";
+    }
+    return routes.slice(0, 8).map((entry) => `${entry.route} -> ${entry.relativePath}`).join("\n");
+}
+async function probeLivePageRoutes(baseUrl) {
+    const pageOps = await buildProjectPageOpsStatus(baseUrl);
+    const routesToProbe = Array.from(new Set(["/", ...pageOps.routes.map((entry) => entry.route)])).slice(0, 8);
+    const results = [];
+    for (const route of routesToProbe) {
+        const url = buildProjectRouteUrl(baseUrl, route);
+        if (!url) {
+            continue;
+        }
+        try {
+            const response = await fetch(url, {
+                method: "GET",
+                redirect: "manual",
+                headers: {
+                    "user-agent": "kirapolis-postdeploy-probe"
+                }
+            });
+            results.push({
+                route,
+                url,
+                status: response.status,
+                reachable: response.status === 401 || (response.status >= 200 && response.status < 400),
+                contentType: String(response.headers.get("content-type") || "")
+            });
+        }
+        catch (error) {
+            results.push({
+                route,
+                url,
+                status: 0,
+                reachable: false,
+                contentType: "",
+                error: describeError(error)
+            });
+        }
+    }
+    return {
+        totalRoutes: results.length,
+        reachableRoutes: results.filter((entry) => entry.reachable).length,
+        failedRoutes: results.filter((entry) => !entry.reachable),
+        results
+    };
+}
+function summarizeLivePageProbe(liveProbe) {
+    if (!liveProbe?.results?.length) {
+        return "Live page probe not run.";
+    }
+    return liveProbe.results.map((entry) => `${entry.route} -> ${entry.status || "ERR"}${entry.error ? ` (${entry.error})` : ""}`).join("\n");
+}
 async function generateAutonomyTasks(agent, chat, searchHits) {
     const prompt = [
         "Generate a task list for your next autonomy cycle.",
@@ -2059,6 +2432,7 @@ function agentPromptContext(agent, mode) {
         `Attached tools: ${agent.tools.join(", ") || "none"}`,
         `Specialized skills: ${agent.skills.join(", ") || "none"}`,
         getPageStructureRule(),
+        "Page operations contract: every route mentioned in chat should end up owned by a responsible agent, backed by a functioning page artifact or generated fallback, and reported back into the team room until the real page is live.",
         "Exploration protocol: when the path is unclear, identify unknowns, propose 2-3 options, run the safest useful prototype, capture what changed, and feed the result back into tasks and notes.",
         "Strategic horizon: build the current browser experience as phase one of a future immersive world stack that may later include persistent realtime systems and a downloadable client.",
         dashboardState.projectBrief ? `Shared project brief: ${dashboardState.projectBrief}` : "",
@@ -2295,6 +2669,17 @@ function getPostDeployAgentIds() {
         "agent-visual-analyst"
     ].filter((agentId) => Boolean(teamRegistry.get(agentId)));
 }
+function getPageOperationsAgentIds() {
+    return [
+        "agent-manager",
+        "agent-page-steward",
+        "agent-frontend",
+        "agent-backend",
+        "agent-qa",
+        "agent-postdeploy-monitor",
+        "agent-visual-analyst"
+    ].filter((agentId) => Boolean(teamRegistry.get(agentId)));
+}
 function listLocalSpecialists() {
     return teamRegistry.list().filter((agent) => String(agent.surface || "shared") === "local");
 }
@@ -2308,6 +2693,26 @@ function getLocalWorkbenchAgentIds() {
 }
 async function ensurePostDeployGroupChat() {
     return await ensureNamedGroupChat("group-post-deploy", "Post Deploy", getPostDeployAgentIds(), "Post Deploy is ready. Railway events, runtime failures, and visual release checks will be routed here for fast triage.");
+}
+async function ensurePageOperationsGroupChat() {
+    return await ensureNamedGroupChat("group-page-operations", "Page Operations", getPageOperationsAgentIds(), "Page Operations is ready. Every visible route should resolve to a functioning page artifact, and every gap should be fed back into the team loop until the real page is live.");
+}
+async function ensurePageOperationsSpecialists() {
+    const specs = [
+        {
+            id: "agent-page-steward",
+            name: "Page Steward",
+            role: "executive",
+            provider: "openclaw",
+            tools: ["planning", "workspace-read", "workspace-write", "web"],
+            skills: ["route-planning", "page-coverage", "content-structure", "handoff-management", "release-readiness", "ux-systems"],
+            notes: "Owns the route map, keeps folder-name/index.html coverage aligned with the URL plan, and turns missing page artifacts into concrete work for builders, QA, and post-deploy."
+        }
+    ];
+    for (const spec of specs) {
+        await teamRegistry.upsert(spec);
+    }
+    await progressionStore.ensureAgents(teamRegistry.list());
 }
 async function ensurePostDeploySpecialists() {
     const specs = [
@@ -2378,6 +2783,46 @@ async function ensureLocalSpecialists() {
 }
 async function ensureLocalWorkbenchGroupChat() {
     return await ensureNamedGroupChat("group-local-workbench", "Local Workbench", getLocalWorkbenchAgentIds(), "Local Workbench is ready. Pull tuned models from Model Lab, attach them to local specialty agents, and coordinate local-only execution without breaking the shared org context.");
+}
+async function syncPageOperationsLoop() {
+    const pageOps = await buildProjectPageOpsStatus(config.publicBaseUrl || "");
+    const routeSummary = summarizePageOpsRoutes(pageOps);
+    await dashboardStore.upsertTask({
+        id: "pageops-steward-coverage",
+        title: "Keep route coverage aligned with the URL plan",
+        detail: [
+            getPageStructureRule(),
+            `Known routes (${pageOps.totalRoutes}):`,
+            routeSummary,
+            "Read new chat context, convert route gaps into concrete work, and report the next handoff into Page Operations."
+        ].join("\n\n"),
+        status: "doing",
+        agentId: "agent-page-steward"
+    });
+    await dashboardStore.upsertTask({
+        id: "pageops-frontend-entrypoints",
+        title: "Maintain functioning page entrypoints",
+        detail: [
+            "Every visible route should have a functioning page artifact.",
+            `Root entrypoint: ${pageOps.rootEntrypoint.relativePath}${pageOps.rootEntrypoint.generated ? " (generated fallback currently in place)" : ""}.`,
+            "If a route-specific page is not ready yet, keep the route live and replace the fallback with a deliberate page as soon as possible."
+        ].join("\n\n"),
+        status: "doing",
+        agentId: "agent-frontend"
+    });
+    await dashboardStore.upsertTask({
+        id: "pageops-postdeploy-live",
+        title: "Verify live page coverage after each deploy",
+        detail: [
+            "Post-prod owns the live check after release.",
+            `Routes to verify:\n${routeSummary}`,
+            "Confirm the URL responds cleanly, then relay any failures or regressions back into Page Operations and Closed Loop."
+        ].join("\n\n"),
+        status: "todo",
+        agentId: "agent-postdeploy-monitor"
+    });
+    await ensurePageOperationsGroupChat();
+    return pageOps;
 }
 function localWorkbenchChatFilter(chat, localIds) {
     if (!chat) {
@@ -2489,7 +2934,7 @@ async function relayPostDeployAgent(agentId, prompt, chatId) {
         return null;
     }
 }
-async function relayPostDeploySummaryToCoreTeam(summary, postDeployChatId, monitorReply, visualReply) {
+async function relayPostDeploySummaryToCoreTeam(summary, postDeployChatId, monitorReply, visualReply, liveProbeSummary = "") {
     const coreTeamChatId = "group-core-team";
     const messageParts = [
         `Post-deploy ${summary.failed ? "incident" : summary.succeeded ? "check-in" : "update"} for ${summary.service}.`,
@@ -2498,6 +2943,9 @@ async function relayPostDeploySummaryToCoreTeam(summary, postDeployChatId, monit
     ];
     if (summary.errorMessage) {
         messageParts.push(`Detail: ${summary.errorMessage}`);
+    }
+    if (liveProbeSummary) {
+        messageParts.push(`Live route probe:\n${liveProbeSummary}`);
     }
     messageParts.push(`Incident room: ${postDeployChatId}`);
     if (monitorReply) {
@@ -2516,6 +2964,9 @@ async function relayPostDeploySummaryToCoreTeam(summary, postDeployChatId, monit
 async function handleRailwayDeploymentEvent(payload) {
     const summary = summarizeRailwayPayload(payload);
     const postDeployChat = await ensurePostDeployGroupChat();
+    await ensurePageOperationsGroupChat();
+    await syncPageOperationsLoop();
+    const liveProbe = summary.url ? await probeLivePageRoutes(summary.url) : null;
     const detailParts = [
         `Event: ${summary.eventType}`,
         `Status: ${summary.status || "unknown"}`,
@@ -2523,11 +2974,15 @@ async function handleRailwayDeploymentEvent(payload) {
         `Service: ${summary.service}`,
         summary.deploymentId ? `Deployment: ${summary.deploymentId}` : "",
         summary.url ? `URL: ${summary.url}` : "",
+        liveProbe ? `Live routes: ${liveProbe.reachableRoutes}/${liveProbe.totalRoutes} reachable` : "",
         summary.errorMessage ? `Detail: ${summary.errorMessage}` : ""
     ].filter(Boolean);
     const detailText = detailParts.join(" | ");
     if (summary.failed) {
         await dashboardStore.addFailure("railway", `Railway ${summary.eventType} failed for ${summary.service}`, detailText);
+    }
+    if (liveProbe?.failedRoutes?.length) {
+        await dashboardStore.addFailure("post-deploy", `Live route probe failed for ${summary.service}`, summarizeLivePageProbe(liveProbe));
     }
     await dashboardStore.addActivity({
         source: "railway",
@@ -2544,21 +2999,22 @@ async function handleRailwayDeploymentEvent(payload) {
     await appendChatMessageById(postDeployChat?.id || "group-post-deploy", {
         role: "system",
         author: "Railway",
-        content: `${summary.failed ? "Deployment issue detected." : summary.succeeded ? "Deployment update received." : "Railway event received."}\n\n${detailText}`,
+        content: `${summary.failed ? "Deployment issue detected." : summary.succeeded ? "Deployment update received." : "Railway event received."}\n\n${detailText}${liveProbe ? `\n\nLive route probe\n${summarizeLivePageProbe(liveProbe)}` : ""}`,
         createdAt: Date.now()
     });
     const monitorTaskTitle = summary.failed ? `Investigate Railway issue in ${summary.service}` : `Confirm post-deploy health for ${summary.service}`;
-    const monitorTaskDetail = `${detailText}\n\nRelay the concrete technical status back into Post Deploy.`;
+    const monitorTaskDetail = `${detailText}\n\n${liveProbe ? `Live route probe\n${summarizeLivePageProbe(liveProbe)}\n\n` : ""}Relay the concrete technical status back into Post Deploy and Page Operations.`;
     await createOrRefreshPostDeployTask(`postdeploy-monitor-${summary.deploymentId || summary.service}`, "agent-postdeploy-monitor", monitorTaskTitle, monitorTaskDetail, summary.failed ? "doing" : "todo");
     if (summary.url) {
         const visualTaskTitle = `Visually audit ${summary.service}`;
-        const visualTaskDetail = `${detailText}\n\nOpen ${summary.url} and report layout, UX, navigation, or rendering regressions after deployment.`;
+        const visualTaskDetail = `${detailText}\n\n${liveProbe ? `Probe summary\n${summarizeLivePageProbe(liveProbe)}\n\n` : ""}Open ${summary.url} and report layout, UX, navigation, or rendering regressions after deployment.`;
         await createOrRefreshPostDeployTask(`postdeploy-visual-${summary.deploymentId || summary.service}`, "agent-visual-analyst", visualTaskTitle, visualTaskDetail, "todo");
     }
     const monitorPrompt = [
         "You are handling a post-deployment monitoring event.",
         "Summarize the event, identify the most likely technical concern, and tell the team the next action in 3 short sections: Signal, Risk, Next Step.",
         `Event summary: ${detailText}`,
+        liveProbe ? `Live route probe:\n${summarizeLivePageProbe(liveProbe)}` : "",
         summary.failed ? "Treat this as an incident until proven otherwise." : "Treat this as a release verification pass."
     ].join("\n\n");
     const monitorReply = await relayPostDeployAgent("agent-postdeploy-monitor", monitorPrompt, postDeployChat?.id || "group-post-deploy");
@@ -2568,11 +3024,12 @@ async function handleRailwayDeploymentEvent(payload) {
             "You are the post-deployment visual analyst.",
             "Describe the visual audit plan for this deployment in 3 short sections: What to check, likely regressions, and what the team should verify first.",
             `Deployment URL: ${summary.url}`,
-            `Event summary: ${detailText}`
+            `Event summary: ${detailText}`,
+            liveProbe ? `Live route probe:\n${summarizeLivePageProbe(liveProbe)}` : ""
         ].join("\n\n");
         visualReply = (await relayPostDeployAgent("agent-visual-analyst", visualPrompt, postDeployChat?.id || "group-post-deploy")) || "";
     }
-    await relayPostDeploySummaryToCoreTeam(summary, postDeployChat?.id || "group-post-deploy", monitorReply || "", visualReply);
+    await relayPostDeploySummaryToCoreTeam(summary, postDeployChat?.id || "group-post-deploy", monitorReply || "", visualReply, liveProbe ? summarizeLivePageProbe(liveProbe) : "");
     return summary;
 }
 async function runAgentGroupCycle(agent, chat, cycleIndex) {
@@ -2749,6 +3206,8 @@ class TeamHeartbeat {
             detail: `Every eligible agent now runs its own autonomy loop on a ${this.status.intervalMs}ms schedule.`
         });
         await ensureDefaultGroupChat();
+        await ensurePageOperationsGroupChat();
+        await syncPageOperationsLoop();
         for (const agent of teamRegistry.list().filter((entry) => entry.state !== "paused")) {
             void this.runAgentCycle(agent.id, true);
         }
@@ -2849,6 +3308,8 @@ class TeamHeartbeat {
         this.status.lastRunAt = loop.lastRunAt;
         try {
             await ensureDefaultGroupChat();
+            await ensurePageOperationsGroupChat();
+            await syncPageOperationsLoop();
             const board = dashboardStore.getState();
             const groupChats = board.messenger.chats.filter((chat) => chat.type === "group" && chat.members.length >= 2);
             if (!groupChats.length) {
@@ -2908,70 +3369,18 @@ app.use("/experience/project", express.static(config.projectRoot, { index: false
 app.use("/experience/shared", express.static(path.join(config.controlRoot, "apps", "desktop", "src", "shared"), { extensions: ["js", "html"] }));
 app.use("/vendor/monaco", express.static(path.join(config.controlRoot, "node_modules", "monaco-editor", "min")));
 function renderProjectExperienceFallback() {
-    return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Kirapolis Project Preview</title>
-  <style>
-    :root { color-scheme: dark; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: "Segoe UI", Arial, sans-serif;
-      background:
-        radial-gradient(circle at top, rgba(255,153,51,0.18), transparent 42%),
-        linear-gradient(180deg, #120b07 0%, #070707 100%);
-      color: #f5efe8;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-      box-sizing: border-box;
-    }
-    .shell {
-      width: min(720px, 100%);
-      border: 1px solid rgba(255,153,51,0.28);
-      background: rgba(14, 10, 8, 0.9);
-      box-shadow: 0 24px 80px rgba(0,0,0,0.45);
-      border-radius: 24px;
-      padding: 28px;
-    }
-    .eyebrow {
-      text-transform: uppercase;
-      letter-spacing: 0.18em;
-      font-size: 12px;
-      color: #ffad66;
-      margin-bottom: 10px;
-    }
-    h1 { margin: 0 0 12px; font-size: 30px; line-height: 1.1; }
-    p { color: #d6c3b2; line-height: 1.55; }
-    code {
-      display: inline-block;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 8px;
-      padding: 2px 8px;
-      margin-top: 4px;
-    }
-  </style>
-</head>
-<body>
-  <main class="shell">
-    <div class="eyebrow">Workspace Preview</div>
-    <h1>No project site entrypoint found yet</h1>
-    <p>Kirapolis is serving the workspace root, but <code>${config.projectRoot.replace(/\\/g, "/")}/index.html</code> does not exist.</p>
-    <p>The office background and workspace preview are still available, but the embedded project page will stay on this fallback until you point <code>KIRA_PROJECT_ROOT</code> at a runnable site or add an <code>index.html</code> there.</p>
-  </main>
-</body>
-</html>`;
+    return createProjectRouteFallbackHtml("/", "The workspace preview is still available, and Page Operations will keep this route assigned until a deliberate page replaces the generated default.");
 }
-app.get(["/experience/project", "/experience/project/"], async (_req, res) => {
-    const projectIndexPath = path.join(config.projectRoot, "index.html");
-    if (await pathExists(projectIndexPath)) {
-        return res.sendFile(projectIndexPath);
+app.get(/^\/experience\/project(?:\/.*)?$/, async (req, res) => {
+    const requestedRoute = normalizeProjectRoute(String(req.path || "").replace(/^\/experience\/project/, "") || "/");
+    const target = await resolveProjectExperienceTarget(requestedRoute);
+    if (requestedRoute === "/") {
+        await ensureProjectRootEntrypoint();
     }
-    return res.status(200).type("html").send(renderProjectExperienceFallback());
+    if (target.exists) {
+        return res.sendFile(target.absolutePath);
+    }
+    return res.status(200).type("html").send(createProjectRouteFallbackHtml(requestedRoute));
 });
 app.use("/experience/office", express.static(path.join(config.controlRoot, "apps", "desktop", "src", "office"), { index: "index.html", extensions: ["html"] }));
 app.get("/experience/office", (_req, res) => {
@@ -3133,6 +3542,7 @@ app.get("/api/system/launch-readiness", async (_req, res) => {
         const providerStatus = await getProviderStatus();
         const signals = await buildExperienceSignals();
         const repo = await collectRepoSummary(config.projectRoot);
+        const pageOps = await syncPageOperationsLoop();
         return res.json({
             generatedAt: Date.now(),
             autonomy: teamHeartbeat.getStatus(),
@@ -3141,7 +3551,8 @@ app.get("/api/system/launch-readiness", async (_req, res) => {
             summary: signals.summary,
             remoteUrls: getReachableUrls(),
             providerStatus,
-            websiteProjectPath: desktopSettings.websiteProjectPath || config.projectRoot
+            websiteProjectPath: desktopSettings.websiteProjectPath || config.projectRoot,
+            pageOps
         });
     }
     catch (error) {
@@ -5180,6 +5591,10 @@ async function bootstrapServer() {
     logStartup("progression-store:init");
     await progressionStore.init();
 
+    startupState.phase = "specialists:page-operations";
+    logStartup("specialists:page-operations");
+    await ensurePageOperationsSpecialists();
+
     startupState.phase = "specialists:post-deploy";
     logStartup("specialists:post-deploy");
     await ensurePostDeploySpecialists();
@@ -5213,8 +5628,10 @@ async function bootstrapServer() {
     startupState.phase = "rooms:ensure-defaults";
     logStartup("rooms:ensure-defaults");
     await ensureDefaultGroupChat();
+    await ensurePageOperationsGroupChat();
     await ensurePostDeployGroupChat();
     await ensureLocalWorkbenchGroupChat();
+    await syncPageOperationsLoop();
 
     const managerAgent = teamRegistry.list().find((agent) => agent.isManager);
     startupState.phase = "manager-brain:select";

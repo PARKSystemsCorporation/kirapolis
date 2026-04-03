@@ -4,7 +4,7 @@ import path from "node:path";
 const MAX_FAILURES = 50;
 const MAX_ACTIVITY = 250;
 function defaultProjectBrief() {
-    return "Website structure rule: every page should live in a folder whose name matches the intended URL slug, and the visible page file inside that folder should be named index.html unless there is a deliberate framework-specific reason not to.";
+    return "Website structure rule: every page should live in a folder whose name matches the intended URL slug, and the visible page file inside that folder should be named index.html unless there is a deliberate framework-specific reason not to. Operational rule: every route mentioned in planning or chat must stay owned by an agent, stay reachable with a functioning page artifact or generated fallback, and get verified by post-deploy after release.";
 }
 function normalizeActivityStatus(input) {
     return input === "working" || input === "done" || input === "issue" ? input : "info";
