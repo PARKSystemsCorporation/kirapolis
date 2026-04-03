@@ -24,7 +24,7 @@ export function getConfig() {
         ? "railway"
         : "local";
     const inferredHost = inferredExecutionTarget === "railway" ? "0.0.0.0" : "127.0.0.1";
-    const inferredPort = Number(process.env.KIRA_PORT || process.env.PORT || 4317);
+    const inferredPort = Number(process.env.PORT || process.env.KIRA_PORT || 4317);
     return {
         host: process.env.KIRA_HOST || inferredHost,
         port: Number.isFinite(inferredPort) ? inferredPort : 4317,
