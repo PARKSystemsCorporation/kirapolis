@@ -1,4 +1,5 @@
 node_modules/
+dist/
 out/
 .turbo/
 .vscode-test/
@@ -19,7 +20,3 @@ data/agent-progression.json
 data/model-neutralization/
 data/persona-training/
 data/persona-training-runs/
-!apps/desktop/dist/
-!apps/desktop/dist/**
-!services/agent/dist/
-!services/agent/dist/**
