@@ -1518,6 +1518,174 @@ h1 {
   }
 }
 
+@media (max-width: 600px) {
+  .office-app {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .office-topbar {
+    padding: 12px 14px;
+    gap: 10px;
+    border-radius: 16px;
+  }
+
+  .office-topbar h1 {
+    font-size: 18px;
+    margin-top: 4px;
+  }
+
+  .topbar-stats {
+    gap: 6px;
+  }
+
+  .nav-chip {
+    min-height: 40px;
+    padding: 0 10px;
+    font-size: 12px;
+    border-radius: 12px;
+  }
+
+  .stat-chip {
+    min-width: 72px;
+    padding: 8px 10px;
+    border-radius: 12px;
+  }
+
+  .stat-chip strong {
+    font-size: 18px;
+    margin-top: 3px;
+  }
+
+  .office-map-panel {
+    border-radius: 16px;
+    padding: 6px;
+  }
+
+  .office-map {
+    height: calc(100vh - 120px);
+    border-radius: 12px;
+  }
+
+  .office-map-viewport {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+  }
+
+  .office-drawer {
+    left: 6px;
+    right: 6px;
+    bottom: 64px;
+    max-height: 55vh;
+    min-width: 0;
+    width: auto;
+    padding: 10px;
+    border-radius: 16px;
+  }
+
+  .drawer-title {
+    font-size: 17px;
+  }
+
+  .drawer-close {
+    min-height: 36px;
+  }
+
+  .office-drawer-tabs {
+    gap: 5px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .drawer-tab {
+    padding: 7px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+    flex: none;
+  }
+
+  .office-dock {
+    left: 6px;
+    right: 6px;
+    bottom: 6px;
+    gap: 5px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dock-button {
+    padding: 8px 11px;
+    font-size: 12px;
+    white-space: nowrap;
+    flex: none;
+  }
+
+  .agent-card-top {
+    flex-direction: column;
+    align-items: start;
+    gap: 8px;
+  }
+
+  .agent-card-sprite {
+    width: 72px;
+    height: 72px;
+  }
+
+  .agent-card-name {
+    font-size: 18px;
+  }
+
+  .agent-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .agent-detail {
+    padding: 8px;
+    border-radius: 10px;
+  }
+
+  .panel {
+    border-radius: 16px;
+  }
+
+  .office-map-toolbar {
+    padding: 0 2px 6px;
+  }
+
+  .formula-text {
+    font-size: 11px;
+  }
+
+  .panel-copy,
+  .drawer-scroll {
+    font-size: 12px;
+  }
+
+  .room-transcript-entry {
+    font-size: 12px;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .office-map-viewport {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+  }
+
+  .nav-chip,
+  .dock-button,
+  .drawer-tab,
+  .drawer-entry,
+  .drawer-close {
+    min-height: 44px;
+  }
+}
+
 @keyframes sprite-bob {
   0%, 100% { transform: translate(-50%, -50%) translateY(0); }
   50% { transform: translate(-50%, -50%) translateY(-4px); }
