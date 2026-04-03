@@ -4,11 +4,11 @@
   "private": true,
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "npx tsc -p tsconfig.json",
+    "typecheck": "npx tsc -p tsconfig.json --noEmit",
     "start": "electron dist/main.js"
   },
-  "devDependencies": {
+  "dependencies": {
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0"
   }

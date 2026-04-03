@@ -3,14 +3,14 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/desktop/package.json apps/desktop/package.json
 COPY services/agent/package.json services/agent/package.json
-RUN npm ci --ignore-scripts --omit=optional 2>/dev/null || npm install --ignore-scripts --omit=optional
+RUN npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
 COPY services/agent/ services/agent/
 COPY apps/desktop/src/office/ apps/desktop/src/office/
 COPY apps/desktop/src/shared/ apps/desktop/src/shared/
 COPY data/ data/
 COPY scripts/ scripts/
 COPY .env.example .env.example
-RUN npx tsc -p services/agent/tsconfig.json
+RUN npm run build
 ENV NODE_ENV=production
 ENV KIRA_HOST=0.0.0.0
 ENV KIRA_PORT=4317
