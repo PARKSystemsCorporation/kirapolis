@@ -11,8 +11,8 @@
   "scripts": {
     "build": "npm run build --workspace @kirapolis/agent --workspace @kirapolis/desktop",
     "typecheck": "npm run typecheck --workspace @kirapolis/agent --workspace @kirapolis/desktop",
-    "start": "npm run build && electron apps/desktop/dist/main.js",
-    "start:agent": "npm run build --workspace @kirapolis/agent && node services/agent/dist/server.js",
+    "start": "npm run build --workspace @kirapolis/agent && node services/agent/dist/server.js",
+    "start:desktop": "npm run build && electron apps/desktop/dist/main.js",
     "neutralize:model": "node scripts/neutralize-ollama-model.mjs",
     "unlearning:dataset": "node scripts/build-weight-unlearning-dataset.mjs",
     "unlearning:prepare": "node scripts/prepare-weight-unlearning.mjs",

@@ -8,12 +8,11 @@ This repository is open source under the Apache License 2.0.
 
 ```bash
 npm install
-copy .env.example .env
-npm run build
+cp .env.example .env
 npm start
 ```
 
-The desktop app launches the main control surface, and the agent service runs on `http://127.0.0.1:4317` by default.
+The agent service runs on `http://0.0.0.0:4317` by default. Open `http://localhost:4317/experience/office/` for the office view, or `http://localhost:4317/app` for the full dashboard. Access from other devices on your network at `http://<your-ip>:4317/`.
 
 ## What It Includes
 
@@ -39,21 +38,19 @@ The desktop app launches the main control surface, and the agent service runs on
 - Node.js and npm
 - Python for the training and evaluation scripts
 - A local model runtime if you want to use the model tooling paths
-- Windows is the current primary development environment
+- Works on Windows, macOS, and Linux
 
 ### Run
 
 ```bash
 npm install
-npm run typecheck
-npm run build
 npm start
 ```
 
-### Service Only
+### Desktop App (Electron)
 
 ```bash
-npm run start:agent
+npm run start:desktop
 ```
 
 ### Typecheck
@@ -101,7 +98,7 @@ npm run test:memory
 - Runtime-generated state is intentionally kept lightweight in Git. Local operational data, backups, caches, and memory databases should stay out of version control.
 - The desktop app and agent service are designed to run against a configurable local workspace root.
 - Model training and unlearning scripts are included for local experimentation and should be treated as operator tooling, not hosted production services.
-- Compiled `dist` output is checked in for convenience, but marked as generated in `.gitattributes`.
+- TypeScript is compiled to `dist/` on build. These are gitignored and rebuilt from source via `npm run build`.
 
 ## Release Hygiene
 
