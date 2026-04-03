@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -54,6 +55,14 @@ const weightUnlearningRuntime = {
     process: null,
     lastResult: null
 };
+function createAccessSessionToken(password) {
+    return createHash("sha256").update(`kirapolis:${password}`).digest("hex");
+}
+function getCookieHeaderFlag(req) {
+    const forwardedProto = String(req.headers["x-forwarded-proto"] || "").toLowerCase();
+    const secureRequest = Boolean(req.secure) || forwardedProto.includes("https");
+    return secureRequest ? "; Secure" : "";
+}
 function getModelLabExecutionLabel() {
     const target = String(config.modelLabExecutionTarget || "local").toLowerCase();
     if (target === "railway") {
@@ -73,6 +82,7 @@ app.use((req, res, next) => {
 });
 const accessPassword = String(process.env.KIRA_ACCESS_PASSWORD || "").trim();
 if (accessPassword) {
+    const accessSessionToken = createAccessSessionToken(accessPassword);
     app.use((req, res, next) => {
         if (req.method === "OPTIONS") {
             return next();
@@ -91,13 +101,13 @@ if (accessPassword) {
             }
         }
         // Check query param fallback for simple links
-        if (req.query.token === accessPassword) {
+        if (req.query.token === accessSessionToken) {
             return next();
         }
         // Check cookie for browser sessions
         const cookies = String(req.headers.cookie || "");
         const match = cookies.match(/(?:^|;\s*)kira_token=([^;]*)/);
-        if (match && match[1] === accessPassword) {
+        if (match && match[1] === accessSessionToken) {
             return next();
         }
         // If browser request, show login prompt
@@ -108,7 +118,7 @@ if (accessPassword) {
     app.post("/api/login", express.json(), (req, res) => {
         const password = String(req.body?.password || "").trim();
         if (password === accessPassword) {
-            res.set("Set-Cookie", `kira_token=${accessPassword}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`);
+            res.set("Set-Cookie", `kira_token=${accessSessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${getCookieHeaderFlag(req)}`);
             return res.json({ ok: true });
         }
         return res.status(401).json({ error: "wrong password" });
