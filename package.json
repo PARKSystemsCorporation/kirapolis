@@ -33,7 +33,8 @@
     "test:memory-api": "npm run build --workspace @kirapolis/agent && node scripts/test-memory-api.mjs"
   },
   "devDependencies": {
-    "electron": "^35.0.0"
+    "electron": "^35.0.0",
+    "playwright": "^1.59.1"
   },
   "dependencies": {
     "monaco-editor": "^0.52.2"

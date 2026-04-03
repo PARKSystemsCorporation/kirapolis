@@ -14,6 +14,8 @@ npm start
 
 The agent service runs on `http://0.0.0.0:4317` by default. Open `http://localhost:4317/experience/office/` for the office view, or `http://localhost:4317/app` for the full dashboard. Access from other devices on your network at `http://<your-ip>:4317/`.
 
+Autonomy starts automatically on boot. Turn it off from Settings in the dashboard or stop the server if you want a quiet/manual session.
+
 ## Railway Quick Deploy
 
 For a public GitHub deploy, the intended path is:
@@ -61,6 +63,20 @@ If you want the hosted app to stay fully operator-controlled, do not commit real
 - `scripts`: Utility scripts for setup, experimentation, maintenance, and evaluation
 - `data`: Starter data, templates, and local runtime state
 - `docs`: Supporting project documentation
+
+## Page Routing Standard
+
+Kirapolis now treats this as the default website structure rule across the dashboard briefing flow and agent runtime:
+
+- each page lives in a folder whose name matches the final URL slug
+- the visible file inside that folder is `index.html`
+
+Examples:
+
+- `/about` -> `about/index.html`
+- `/products/widget` -> `products/widget/index.html`
+
+Only break that pattern when a framework-specific router deliberately requires a different entry file convention.
 
 ## Local Development
 

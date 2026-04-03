@@ -86,7 +86,7 @@ async function verifyOfficeTapFlow() {
     if (!hiddenBefore) {
       throw new Error("Office drawer should start hidden in fullscreen monitor mode");
     }
-    await frame.locator(".agent-node").first().evaluate((node) => node.click());
+    await frame.locator(".agent-node").first().click({ force: true });
     await page.waitForTimeout(300);
     const hiddenAfter = await frame.locator("#office-drawer").evaluate((node) => node.classList.contains("hidden"));
     if (hiddenAfter) {
@@ -159,10 +159,20 @@ async function main() {
   assertIncludes(fullscreenChat.dom, "Room Transcript", "Fullscreen chat transcript");
   assertIncludes(fullscreenChat.dom, "Room Context", "Fullscreen chat side context");
 
+  const appCommand = render("http://127.0.0.1:4317/app?tab=control", "app-command.png");
+  assertIncludes(appCommand.dom, "Autonomy now comes up live by default", "Command autonomy default copy");
+  assertIncludes(appCommand.dom, "Default page routing rule", "Command routing rule card");
+  assertIncludes(appCommand.dom, "index.html", "Command routing convention");
+
   const appWorkspace = render("http://127.0.0.1:4317/app?tab=files&agentId=agent-ceo", "app-workspace.png");
   assertIncludes(appWorkspace.dom, "Review the live site beside the exact files and notes your agents are producing", "Workspace hero");
   assertIncludes(appWorkspace.dom, "Reload Site", "Workspace quick relay");
   assertIncludesAny(appWorkspace.dom, ["CEO", "Project Manager", "Global workspace"], "Workspace agent focus");
+
+  const autonomy = await getJson("http://127.0.0.1:4317/api/autonomy");
+  if (!autonomy?.active) {
+    throw new Error("Autonomy should default to active on boot");
+  }
 
   console.log(`Kirapolis UI E2E passed. Artifacts: ${outDir}`);
 }
