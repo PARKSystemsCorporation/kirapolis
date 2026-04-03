@@ -3,6 +3,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 const MAX_FAILURES = 50;
 const MAX_ACTIVITY = 250;
+function defaultProjectBrief() {
+    return "Website structure rule: every page should live in a folder whose name matches the intended URL slug, and the visible page file inside that folder should be named index.html unless there is a deliberate framework-specific reason not to.";
+}
 function normalizeActivityStatus(input) {
     return input === "working" || input === "done" || input === "issue" ? input : "info";
 }
@@ -10,7 +13,7 @@ export class DashboardStore {
     workspaceRoot;
     statePath;
     state = {
-        projectBrief: "",
+        projectBrief: defaultProjectBrief(),
         tasks: [],
         assets: [],
         failures: [],
@@ -31,7 +34,7 @@ export class DashboardStore {
             const raw = await fs.readFile(this.statePath, "utf8");
             const parsed = JSON.parse(raw);
             this.state = {
-                projectBrief: String(parsed.projectBrief || ""),
+                projectBrief: String(parsed.projectBrief || defaultProjectBrief()),
                 tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map((task) => ({
                     id: String(task.id || `task-${Date.now()}`),
                     title: String(task.title || "Untitled Task"),
@@ -222,7 +225,7 @@ export class DashboardStore {
     }
     async resetAll() {
         this.state = {
-            projectBrief: "",
+            projectBrief: defaultProjectBrief(),
             tasks: [],
             assets: [],
             failures: [],

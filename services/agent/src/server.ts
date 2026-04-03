@@ -84,6 +84,9 @@ function getModelLabExecutionLabel() {
     const machine = String(config.modelLabMachineLabel || "this computer").trim();
     return machine ? `local computer (${machine})` : "local computer";
 }
+function getPageStructureRule() {
+    return "Routing rule: each website page should live in a folder whose name matches the final URL slug, and the page content inside that folder should be served from index.html unless a framework-specific router requires a different entry file.";
+}
 process.on("uncaughtException", (error) => {
     console.error("[fatal] uncaughtException", error);
 });
@@ -2055,6 +2058,7 @@ function agentPromptContext(agent, mode) {
         `Workspace folder: ${agent.workspacePath}`,
         `Attached tools: ${agent.tools.join(", ") || "none"}`,
         `Specialized skills: ${agent.skills.join(", ") || "none"}`,
+        getPageStructureRule(),
         "Exploration protocol: when the path is unclear, identify unknowns, propose 2-3 options, run the safest useful prototype, capture what changed, and feed the result back into tasks and notes.",
         "Strategic horizon: build the current browser experience as phase one of a future immersive world stack that may later include persistent realtime systems and a downloadable client.",
         dashboardState.projectBrief ? `Shared project brief: ${dashboardState.projectBrief}` : "",
@@ -5221,6 +5225,9 @@ async function bootstrapServer() {
     logStartup("runtime:constructors");
     learningLoop = new KiraLearningLoop(() => ({ ...config, ...runtimeSettings }), managerBrain);
     teamHeartbeat = new TeamHeartbeat();
+    startupState.phase = "autonomy:default-start";
+    logStartup("autonomy:default-start", "starting default autonomy loop");
+    await teamHeartbeat.start(60000, 8);
     startupState.phase = "ready";
     startupState.ready = true;
     startupState.finishedAt = Date.now();
