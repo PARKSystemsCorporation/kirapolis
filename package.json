@@ -34,5 +34,8 @@
   },
   "devDependencies": {
     "electron": "^35.0.0"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.52.2"
   }
 }
