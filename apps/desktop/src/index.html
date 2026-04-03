@@ -1859,6 +1859,27 @@
         backdrop-filter: blur(18px);
       }
     }
+    .local-drop-target {
+      border: 1px dashed rgba(249, 163, 94, 0.45);
+      border-radius: 18px;
+      padding: 12px;
+      background: rgba(249, 163, 94, 0.05);
+      transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+    }
+    .local-drop-target.drag-over {
+      border-color: rgba(249, 163, 94, 0.95);
+      background: rgba(249, 163, 94, 0.14);
+      transform: translateY(-1px);
+    }
+    .local-drag-card {
+      cursor: grab;
+    }
+    .local-drag-card:active {
+      cursor: grabbing;
+    }
+    .local-room-draft {
+      min-height: 116px;
+    }
     @media (pointer: coarse) {
       button,
       input,
@@ -1925,6 +1946,7 @@
         <div class="tabs">
           <button class="tab active" data-tab="control">Command</button>
           <button class="tab" data-tab="chat">Comms</button>
+          <button class="tab" data-tab="local">Local</button>
           <button class="tab" data-tab="studio">Studio</button>
           <button class="tab" data-tab="lab">Model</button>
           <button class="tab" data-tab="office">Office</button>
@@ -2410,6 +2432,96 @@
             </div>
           </div>
         </section>
+        <section id="tab-local" class="tab-panel hidden">
+          <div class="chat-shell">
+            <div class="panel chat-panel">
+              <div class="panel stack room-hero" style="margin:0;">
+                <div class="label">Local Workbench</div>
+                <div class="big" style="font-size:28px;">Pull tuned models into local specialists, then drop those specialists into shared rooms</div>
+                <div class="sub">Model tuning stays in Model Lab. This surface is for the next step: assigning tuned models to local operators, composing their room architecture, and keeping that work legible to the same shared org.</div>
+              </div>
+              <div class="panel stack" style="margin:0;">
+                <div class="row-head">
+                  <div class="label">Tuned Models</div>
+                  <button id="local-refresh-btn">Refresh</button>
+                </div>
+                <div class="sub">Click a model to stage a new local specialist. Drag a model card onto an existing local specialist to reassign it.</div>
+                <div id="local-model-list" class="list chat-room-list"></div>
+              </div>
+              <div class="panel stack" style="margin:0;">
+                <div class="label">Create Local Specialist</div>
+                <input id="local-selected-model-input" placeholder="Select a tuned model from the list above" readonly>
+                <input id="local-agent-name-input" placeholder="Local Reasoning Specialist">
+                <div class="grid-2">
+                  <select id="local-agent-role-input">
+                    <option value="runner">Runner</option>
+                    <option value="coder">Coder</option>
+                    <option value="executive">Executive</option>
+                  </select>
+                  <select id="local-agent-provider-input">
+                    <option value="ollama">Ollama</option>
+                    <option value="openclaw">OpenClaw</option>
+                  </select>
+                </div>
+                <input id="local-agent-specialty-input" placeholder="Local orchestration, safety review, tool routing">
+                <textarea id="local-agent-notes-input" placeholder="What this local specialist owns."></textarea>
+                <div class="toolbar">
+                  <button class="primary" id="local-create-agent-btn">Create Specialist</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel chat-stage">
+              <div class="panel stack chat-stage-head" style="margin:0;">
+                <div class="label">Local Operators</div>
+                <div id="local-summary" class="big" style="font-size:30px;">Loading local workbench</div>
+                <div id="local-summary-copy" class="sub">Reading tuned models, local agents, and linked rooms.</div>
+              </div>
+              <div class="panel stack" style="margin:0;">
+                <div class="row-head">
+                  <div class="label">Local Specialists</div>
+                  <div class="sub">Drop models onto these cards.</div>
+                </div>
+                <div id="local-agents-list" class="list"></div>
+              </div>
+              <div class="panel stack" style="margin:0;">
+                <div class="row-head">
+                  <div class="label">Shared Specialists</div>
+                  <div class="sub">Drag any of these into a room draft or onto an existing room.</div>
+                </div>
+                <div id="local-shared-agents-list" class="list"></div>
+              </div>
+            </div>
+
+            <div class="panel chat-panel">
+              <div class="panel stack manager-focus-card" style="margin:0;">
+                <div class="label">Room Composer</div>
+                <input id="local-room-name-input" placeholder="Local Systems Room">
+                <select id="local-room-type-input">
+                  <option value="group">Group Room</option>
+                  <option value="direct">Direct Thread</option>
+                </select>
+                <div id="local-room-draft" class="detail-list local-drop-target local-room-draft"></div>
+                <div class="toolbar">
+                  <button class="primary" id="local-create-room-btn">Create Room</button>
+                  <button id="local-clear-room-draft-btn">Clear Draft</button>
+                  <div id="local-room-selection-count" class="sub">0 selected</div>
+                </div>
+                <div class="guide-card">
+                  <strong>Drag and drop works both ways</strong>
+                  <div class="sub">Drop agents into the draft to create a new room, or drop them straight onto an existing room card to add them there immediately.</div>
+                </div>
+              </div>
+              <div class="panel stack" style="margin:0;">
+                <div class="row-head">
+                  <div class="label">Local Rooms</div>
+                  <button id="local-open-workbench-room-btn">Open Workbench</button>
+                </div>
+                <div id="local-rooms-list" class="list chat-room-list"></div>
+              </div>
+            </div>
+          </div>
+        </section>
         <section id="tab-chat" class="tab-panel hidden">
           <div class="chat-shell">
             <div class="panel chat-panel">
@@ -2701,6 +2813,7 @@
   <div class="mobile-tabbar">
     <button class="mobile-tab active" data-tab="control">Command</button>
     <button class="mobile-tab" data-tab="chat">Comms</button>
+    <button class="mobile-tab" data-tab="local">Local</button>
     <button class="mobile-tab" data-tab="studio">Studio</button>
     <button class="mobile-tab" data-tab="lab">Model</button>
     <button class="mobile-tab" data-tab="office">Office</button>
@@ -2859,6 +2972,9 @@
       },
       modelLab: null,
       modelLabChatHistory: [],
+      localWorkbench: null,
+      localRoomDraftMembers: [],
+      localSelectedModel: "",
       selectedFiles: [],
       selectedNotes: [],
       selectedFile: null,
@@ -3942,6 +4058,316 @@
       });
     }
 
+    function getLocalWorkbenchAgents() {
+      return state.localWorkbench?.localAgents || [];
+    }
+
+    function getLocalSharedAgents() {
+      return state.localWorkbench?.sharedAgents || [];
+    }
+
+    function getLocalWorkbenchRooms() {
+      return state.localWorkbench?.rooms || [];
+    }
+
+    function setLocalSelectedModel(model) {
+      state.localSelectedModel = String(model || "").trim();
+      if ($("local-selected-model-input")) {
+        $("local-selected-model-input").value = state.localSelectedModel;
+      }
+    }
+
+    function encodeLocalDragPayload(payload) {
+      return JSON.stringify(payload || {});
+    }
+
+    function decodeLocalDragPayload(event) {
+      const raw = event?.dataTransfer?.getData("application/x-kira-local")
+        || event?.dataTransfer?.getData("text/plain")
+        || "";
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function addLocalDraftMember(agentId) {
+      if (!agentId) return;
+      if (!state.agents.some((agent) => agent.id === agentId)) return;
+      if (!state.localRoomDraftMembers.includes(agentId)) {
+        state.localRoomDraftMembers.push(agentId);
+      }
+      renderLocalWorkbench();
+    }
+
+    function removeLocalDraftMember(agentId) {
+      state.localRoomDraftMembers = (state.localRoomDraftMembers || []).filter((id) => id !== agentId);
+      renderLocalWorkbench();
+    }
+
+    async function refreshLocalWorkbench() {
+      state.localWorkbench = await api("/api/local/workbench");
+      state.localRoomDraftMembers = (state.localRoomDraftMembers || []).filter((agentId) => state.agents.some((agent) => agent.id === agentId));
+      renderModelPresetOptions();
+      renderLocalWorkbench();
+      return state.localWorkbench;
+    }
+
+    async function createLocalAgentFromSelectedModel() {
+      const model = String(state.localSelectedModel || $("local-selected-model-input")?.value || "").trim();
+      if (!model) {
+        setBanner("Select a tuned model first.");
+        return;
+      }
+      await api("/api/local/agents/from-model", "POST", {
+        model,
+        label: $("local-agent-name-input").value.trim(),
+        role: $("local-agent-role-input").value,
+        provider: $("local-agent-provider-input").value,
+        specialty: $("local-agent-specialty-input").value.trim(),
+        notes: $("local-agent-notes-input").value.trim()
+      });
+      $("local-agent-name-input").value = "";
+      $("local-agent-specialty-input").value = "";
+      $("local-agent-notes-input").value = "";
+      await refreshBoard();
+      await refreshLocalWorkbench();
+      setBanner(`Created local specialist from ${model}.`);
+    }
+
+    async function assignModelToLocalAgent(agentId, model) {
+      if (!agentId || !model) return;
+      await api(`/api/local/agents/${encodeURIComponent(agentId)}/model`, "POST", { model });
+      await refreshBoard();
+      await refreshLocalWorkbench();
+      setBanner(`Assigned ${model} to the local specialist.`);
+    }
+
+    async function saveLocalRoom(payload = {}) {
+      const members = Array.from(new Set((payload.members || state.localRoomDraftMembers || []).filter(Boolean)));
+      if (!members.length) {
+        setBanner("Drag agents into the room draft first.");
+        return;
+      }
+      const type = payload.type || $("local-room-type-input").value;
+      const title = String(payload.title ?? $("local-room-name-input").value).trim();
+      await api("/api/local/rooms", "POST", {
+        id: payload.id,
+        type,
+        title,
+        members
+      });
+      state.localRoomDraftMembers = [];
+      $("local-room-name-input").value = "";
+      await refreshBoard();
+      await refreshLocalWorkbench();
+      setBanner(type === "direct" ? "Direct thread ready." : "Group room ready.");
+    }
+
+    async function addAgentToExistingLocalRoom(roomId, agentId) {
+      const room = getLocalWorkbenchRooms().find((entry) => entry.id === roomId);
+      if (!room || !agentId) return;
+      const members = Array.from(new Set([...(room.members || []), agentId]));
+      if (room.type === "direct" && members.length !== 2) {
+        setBanner("Direct threads can only hold two members.");
+        return;
+      }
+      await saveLocalRoom({
+        id: room.id,
+        type: room.type,
+        title: room.title,
+        members
+      });
+    }
+
+    function renderLocalWorkbench() {
+      const workbench = state.localWorkbench;
+      const localAgents = getLocalWorkbenchAgents();
+      const sharedAgents = getLocalSharedAgents();
+      const rooms = getLocalWorkbenchRooms();
+      const tunedModels = workbench?.tunedModels || [];
+      if ($("local-summary")) {
+        $("local-summary").textContent = workbench
+          ? `${localAgents.length} local specialist${localAgents.length === 1 ? "" : "s"} | ${tunedModels.length} tuned model${tunedModels.length === 1 ? "" : "s"}`
+          : "Loading local workbench";
+      }
+      if ($("local-summary-copy")) {
+        $("local-summary-copy").textContent = workbench
+          ? `${rooms.length} linked room${rooms.length === 1 ? "" : "s"} are already using the same chat objects as Comms.`
+          : "Reading tuned models, local agents, and linked rooms.";
+      }
+      if ($("local-selected-model-input") && document.activeElement !== $("local-selected-model-input")) {
+        $("local-selected-model-input").value = state.localSelectedModel || "";
+      }
+      $("local-model-list").innerHTML = tunedModels.length ? tunedModels.map((entry) => `
+        <div class="row local-drag-card ${state.localSelectedModel === entry.model ? "active" : ""}" data-local-model="${escapeHtml(entry.model)}" draggable="true">
+          <div class="row-head">
+            <strong>${escapeHtml(entry.model)}</strong>
+            <div class="pill">Tuned</div>
+          </div>
+          <div class="sub">Click to stage a new specialist. Drag onto a local specialist to reassign that card.</div>
+        </div>
+      `).join("") : `<div class="empty">No tuned models found yet. Save model presets in Model Lab first.</div>`;
+
+      $("local-agents-list").innerHTML = localAgents.length ? localAgents.map((agent) => `
+        <div class="row local-drop-target local-drag-card ${state.selectedAgentId === agent.id ? "active" : ""}" data-local-agent="${escapeHtml(agent.id)}" draggable="true">
+          <div class="row-head">
+            <strong>${escapeHtml(agent.name)}</strong>
+            <div class="pill">${escapeHtml(agent.role || "agent")}</div>
+          </div>
+          <div class="sub">${escapeHtml(agent.specialty || "Local specialist")}</div>
+          <div class="runtime-note">${escapeHtml(compactText(agent.notes || "", 144))}</div>
+          <div class="sub">Model: ${escapeHtml(agent.model || "unassigned")}</div>
+          <div class="sub">Source: ${escapeHtml(agent.sourceModel || agent.model || "none")}</div>
+        </div>
+      `).join("") : `<div class="empty">No local specialists yet. Create one from a tuned model on the left.</div>`;
+
+      $("local-shared-agents-list").innerHTML = sharedAgents.length ? sharedAgents.map((agent) => `
+        <div class="row local-drag-card" data-shared-agent="${escapeHtml(agent.id)}" draggable="true">
+          <div class="row-head">
+            <strong>${escapeHtml(agent.name)}</strong>
+            <div class="pill">${escapeHtml(agent.surface || "shared")}</div>
+          </div>
+          <div class="sub">${escapeHtml(agent.role || "agent")} | ${escapeHtml(agent.specialty || compactText(agent.notes || "", 88))}</div>
+        </div>
+      `).join("") : `<div class="empty">No shared specialists available.</div>`;
+
+      $("local-room-selection-count").textContent = `${state.localRoomDraftMembers.length} selected`;
+      $("local-room-draft").innerHTML = state.localRoomDraftMembers.length ? state.localRoomDraftMembers.map((agentId) => {
+        const agent = state.agents.find((entry) => entry.id === agentId);
+        return `
+          <div class="detail-card">
+            <div class="row-head">
+              <strong>${escapeHtml(agent?.name || agentId)}</strong>
+              <button type="button" data-local-remove-draft="${escapeHtml(agentId)}">Remove</button>
+            </div>
+            <div class="sub">${escapeHtml(agent?.surface || "shared")} | ${escapeHtml(agent?.role || "agent")}</div>
+          </div>
+        `;
+      }).join("") : `<div class="empty">Drop agents here to compose a new local room.</div>`;
+
+      $("local-rooms-list").innerHTML = rooms.length ? rooms.map((room) => `
+        <div class="row chat-room-card local-drop-target ${state.activeChatId === room.id ? "active" : ""}" data-local-room="${escapeHtml(room.id)}">
+          <div class="row-head">
+            <strong>${escapeHtml(room.title)}</strong>
+            <div class="pill">${escapeHtml(room.type)}</div>
+          </div>
+          <div class="sub">${escapeHtml((room.members || []).map((memberId) => state.agents.find((agent) => agent.id === memberId)?.name || memberId).join(", "))}</div>
+          <div class="chat-room-preview">${escapeHtml(getChatPreview(room))}</div>
+        </div>
+      `).join("") : `<div class="empty">No local-linked rooms yet.</div>`;
+
+      [...document.querySelectorAll("[data-local-model]")].forEach((node) => {
+        const model = node.getAttribute("data-local-model") || "";
+        node.addEventListener("click", () => {
+          setLocalSelectedModel(model);
+          renderLocalWorkbench();
+        });
+        node.addEventListener("dragstart", (event) => {
+          event.dataTransfer?.setData("application/x-kira-local", encodeLocalDragPayload({ kind: "model", model }));
+          event.dataTransfer?.setData("text/plain", encodeLocalDragPayload({ kind: "model", model }));
+          event.dataTransfer.effectAllowed = "copy";
+        });
+      });
+
+      const bindAgentDragCard = (node, agentId, dropHandler) => {
+        node.addEventListener("click", () => {
+          focusAgent(agentId);
+          setTab("local");
+          renderLocalWorkbench();
+        });
+        node.addEventListener("dragstart", (event) => {
+          event.dataTransfer?.setData("application/x-kira-local", encodeLocalDragPayload({ kind: "agent", agentId }));
+          event.dataTransfer?.setData("text/plain", encodeLocalDragPayload({ kind: "agent", agentId }));
+          event.dataTransfer.effectAllowed = "move";
+        });
+        if (dropHandler) {
+          node.addEventListener("dragover", (event) => {
+            const payload = decodeLocalDragPayload(event);
+            if (payload?.kind === "model") {
+              event.preventDefault();
+              node.classList.add("drag-over");
+            }
+          });
+          node.addEventListener("dragleave", () => node.classList.remove("drag-over"));
+          node.addEventListener("drop", (event) => {
+            const payload = decodeLocalDragPayload(event);
+            node.classList.remove("drag-over");
+            if (payload?.kind === "model" && payload.model) {
+              event.preventDefault();
+              void dropHandler(payload.model);
+            }
+          });
+        }
+      };
+
+      [...document.querySelectorAll("[data-local-agent]")].forEach((node) => {
+        const agentId = node.getAttribute("data-local-agent") || "";
+        bindAgentDragCard(node, agentId, async (model) => {
+          await assignModelToLocalAgent(agentId, model);
+        });
+      });
+
+      [...document.querySelectorAll("[data-shared-agent]")].forEach((node) => {
+        const agentId = node.getAttribute("data-shared-agent") || "";
+        bindAgentDragCard(node, agentId);
+      });
+
+      [...document.querySelectorAll("[data-local-remove-draft]")].forEach((node) => {
+        node.addEventListener("click", () => removeLocalDraftMember(node.getAttribute("data-local-remove-draft") || ""));
+      });
+
+      const draftNode = $("local-room-draft");
+      if (draftNode) {
+        draftNode.addEventListener("dragover", (event) => {
+          const payload = decodeLocalDragPayload(event);
+          if (payload?.kind === "agent") {
+            event.preventDefault();
+            draftNode.classList.add("drag-over");
+          }
+        });
+        draftNode.addEventListener("dragleave", () => draftNode.classList.remove("drag-over"));
+        draftNode.addEventListener("drop", (event) => {
+          const payload = decodeLocalDragPayload(event);
+          draftNode.classList.remove("drag-over");
+          if (payload?.kind === "agent" && payload.agentId) {
+            event.preventDefault();
+            addLocalDraftMember(payload.agentId);
+          }
+        });
+      }
+
+      [...document.querySelectorAll("[data-local-room]")].forEach((node) => {
+        const roomId = node.getAttribute("data-local-room") || "";
+        node.addEventListener("click", () => {
+          state.activeChatId = roomId;
+          setTab("chat");
+          renderChats();
+          renderActiveChat();
+          renderRoomLaunchpad();
+        });
+        node.addEventListener("dragover", (event) => {
+          const payload = decodeLocalDragPayload(event);
+          if (payload?.kind === "agent") {
+            event.preventDefault();
+            node.classList.add("drag-over");
+          }
+        });
+        node.addEventListener("dragleave", () => node.classList.remove("drag-over"));
+        node.addEventListener("drop", (event) => {
+          const payload = decodeLocalDragPayload(event);
+          node.classList.remove("drag-over");
+          if (payload?.kind === "agent" && payload.agentId) {
+            event.preventDefault();
+            void addAgentToExistingLocalRoom(roomId, payload.agentId);
+          }
+        });
+      });
+    }
+
     async function refreshPersonas() {
       const result = await api("/api/personas");
       state.personas = result.personas || [];
@@ -4412,6 +4838,9 @@
         refreshPreviewFrame();
         renderPreviewLists();
       }
+      if (name === "local") {
+        void refreshLocalWorkbench().catch(() => null);
+      }
       renderSurfaceStrip();
     }
 
@@ -4447,6 +4876,7 @@
         state.selectedStudioAgentId = state.selectedAgentId;
       }
       state.groupDraftMembers = (state.groupDraftMembers || []).filter((agentId) => state.agents.some((agent) => agent.id === agentId));
+      state.localRoomDraftMembers = (state.localRoomDraftMembers || []).filter((agentId) => state.agents.some((agent) => agent.id === agentId));
       renderAgents();
       renderTownBoard();
       renderManagerFocus();
@@ -4455,6 +4885,7 @@
       renderRoomLaunchpad();
       renderWatch();
       renderPersonaStudio();
+      renderLocalWorkbench();
       void refreshSelectedAgentGit();
       void refreshSelectedAgentMemory();
       const heartbeat = state.autonomyStatus || {};
@@ -4467,6 +4898,7 @@
       }
       renderAutonomyToggle();
       renderSurfaceStrip();
+      void refreshLocalWorkbench().catch(() => null);
     }
 
     async function refreshExperienceSignals() {
@@ -4760,6 +5192,7 @@
       const options = Array.from(new Set([
         ...((state.modelLab?.models?.ollama || [])),
         ...((state.modelLab?.presets || []).map((preset) => preset.model || "")),
+        ...((state.localWorkbench?.tunedModels || []).map((entry) => entry.model || "")),
         state.modelLab?.neutralization?.latestRun?.derivedName || ""
       ].filter(Boolean)));
       $("model-preset-options").innerHTML = options.map((model) => `<option value="${escapeHtml(model)}"></option>`).join("");
@@ -5516,6 +5949,21 @@
       $("new-group-btn").addEventListener("click", focusGroupComposer);
       $("new-group-btn-secondary").addEventListener("click", focusGroupComposer);
       $("create-group-btn").addEventListener("click", createGroupChat);
+      $("local-refresh-btn").addEventListener("click", refreshLocalWorkbench);
+      $("local-create-agent-btn").addEventListener("click", createLocalAgentFromSelectedModel);
+      $("local-create-room-btn").addEventListener("click", () => saveLocalRoom());
+      $("local-clear-room-draft-btn").addEventListener("click", () => {
+        state.localRoomDraftMembers = [];
+        renderLocalWorkbench();
+      });
+      $("local-open-workbench-room-btn").addEventListener("click", () => {
+        const roomId = state.localWorkbench?.defaultRoomId || "group-local-workbench";
+        state.activeChatId = roomId;
+        setTab("chat");
+        renderChats();
+        renderActiveChat();
+        renderRoomLaunchpad();
+      });
       $("new-persona-btn").addEventListener("click", () => {
         state.selectedPersonaId = null;
         $("persona-label-input").value = "";
@@ -5661,6 +6109,7 @@
       await refreshPersonas();
       await refreshIndexes();
       await refreshModelLab().catch(() => null);
+      await refreshLocalWorkbench().catch(() => null);
       refreshOfficeFrame(true);
       refreshPreviewFrame(true);
       renderSurfaceStrip();

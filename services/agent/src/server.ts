@@ -216,8 +216,11 @@ async function resumeAutomationAfterReset(options) {
     const heartbeatStatus = options?.heartbeatStatus || (teamHeartbeat ? teamHeartbeat.getStatus() : { active: false });
     const learningStatus = options?.learningStatus || (learningLoop ? learningLoop.getStatus() : { active: false });
     await progressionStore.ensureAgents(teamRegistry.list());
+    await ensurePostDeploySpecialists();
+    await ensureLocalSpecialists();
     await ensureDefaultGroupChat();
     await ensurePostDeployGroupChat();
+    await ensureLocalWorkbenchGroupChat();
     if (heartbeatStatus.active) {
         await teamHeartbeat.start(heartbeatStatus.intervalMs, heartbeatStatus.maxAgentsPerCycle);
     }
@@ -2259,6 +2262,17 @@ function getPostDeployAgentIds() {
         "agent-visual-analyst"
     ].filter((agentId) => Boolean(teamRegistry.get(agentId)));
 }
+function listLocalSpecialists() {
+    return teamRegistry.list().filter((agent) => String(agent.surface || "shared") === "local");
+}
+function getLocalWorkbenchAgentIds() {
+    const localIds = listLocalSpecialists().map((agent) => agent.id);
+    return Array.from(new Set([
+        "agent-ceo",
+        "agent-manager",
+        ...localIds
+    ].filter((agentId) => Boolean(teamRegistry.get(agentId)))));
+}
 async function ensurePostDeployGroupChat() {
     return await ensureNamedGroupChat("group-post-deploy", "Post Deploy", getPostDeployAgentIds(), "Post Deploy is ready. Railway events, runtime failures, and visual release checks will be routed here for fast triage.");
 }
@@ -2287,6 +2301,106 @@ async function ensurePostDeploySpecialists() {
         await teamRegistry.upsert(spec);
     }
     await progressionStore.ensureAgents(teamRegistry.list());
+}
+async function ensureLocalSpecialists() {
+    const specs = [
+        {
+            id: "agent-local-architect",
+            name: "Local Systems Architect",
+            role: "executive",
+            surface: "local",
+            provider: "ollama",
+            tools: ["planning", "workspace-read", "web"],
+            skills: ["local-runtime-planning", "system-design", "architecture-review", "model-routing", "group-orchestration"],
+            specialty: "Local orchestration",
+            notes: "Designs the local workstation layout, chooses how specialty agents are grouped, and keeps local sessions compatible with the shared Railway-facing org."
+        },
+        {
+            id: "agent-local-builder",
+            name: "Local Integration Builder",
+            role: "coder",
+            surface: "local",
+            provider: "ollama",
+            tools: ["workspace-read", "workspace-write", "exec"],
+            skills: ["local-integration", "runtime-wiring", "toolchain-assembly", "chat-surface-build", "model-handshake"],
+            specialty: "Local integration",
+            notes: "Owns the local-only wiring, specialty-agent hookups, and workstation-specific integration work that should not disrupt the hosted Railway surface."
+        },
+        {
+            id: "agent-local-operator",
+            name: "Local Specialist Operator",
+            role: "runner",
+            surface: "local",
+            provider: "ollama",
+            tools: ["workspace-read", "exec", "planning"],
+            skills: ["local-ops", "runtime-checks", "session-handoff", "multi-agent-room-support", "artifact-routing"],
+            specialty: "Local operations",
+            notes: "Runs the local specialty rooms, keeps the workstation side organized, and hands local findings back into the same shared chat structure the Railway agents already use."
+        }
+    ];
+    for (const spec of specs) {
+        await teamRegistry.upsert(spec);
+    }
+    await progressionStore.ensureAgents(teamRegistry.list());
+}
+async function ensureLocalWorkbenchGroupChat() {
+    return await ensureNamedGroupChat("group-local-workbench", "Local Workbench", getLocalWorkbenchAgentIds(), "Local Workbench is ready. Pull tuned models from Model Lab, attach them to local specialty agents, and coordinate local-only execution without breaking the shared org context.");
+}
+function localWorkbenchChatFilter(chat, localIds) {
+    if (!chat) {
+        return false;
+    }
+    if (chat.id === "group-local-workbench") {
+        return true;
+    }
+    return Array.isArray(chat.members) && chat.members.some((memberId) => localIds.has(memberId));
+}
+async function collectWorkbenchModels() {
+    const [presets, neutralizationRuns] = await Promise.all([
+        collectModelLabPresets(),
+        collectNeutralizationRuns()
+    ]);
+    const agentModels = teamRegistry.list().flatMap((agent) => [agent.model, agent.sourceModel]);
+    return Array.from(new Set([
+        ...Object.values(runtimeSettings.models || {}),
+        ...presets.map((preset) => String(preset?.model || "").trim()),
+        ...neutralizationRuns.map((run) => String(run?.derivedName || "").trim()),
+        ...agentModels.map((model) => String(model || "").trim())
+    ].filter(Boolean))).map((model) => ({ id: model, model }));
+}
+async function buildLocalWorkbenchPayload() {
+    const agents = listAgentsWithProgression();
+    const localAgents = agents.filter((agent) => String(agent.surface || "shared") === "local");
+    const localIds = new Set(localAgents.map((agent) => agent.id));
+    const messenger = dashboardStore.getState().messenger || { chats: [] };
+    const rooms = (messenger.chats || [])
+        .filter((chat) => localWorkbenchChatFilter(chat, localIds))
+        .sort((left, right) => {
+        const leftAt = Number(Array.isArray(left?.messages) && left.messages.length
+            ? left.messages[left.messages.length - 1]?.createdAt
+            : left?.lastReadAt || 0);
+        const rightAt = Number(Array.isArray(right?.messages) && right.messages.length
+            ? right.messages[right.messages.length - 1]?.createdAt
+            : right?.lastReadAt || 0);
+        return rightAt - leftAt;
+    });
+    return {
+        generatedAt: Date.now(),
+        localAgents,
+        sharedAgents: agents.filter((agent) => String(agent.surface || "shared") !== "local"),
+        rooms,
+        tunedModels: await collectWorkbenchModels(),
+        defaultRoomId: "group-local-workbench"
+    };
+}
+function buildDirectRoomTitle(memberIds) {
+    return memberIds
+        .map((memberId) => teamRegistry.get(memberId)?.name || memberId)
+        .join(" + ")
+        .slice(0, 120) || "Direct Thread";
+}
+function uniqueValidMemberIds(memberIds) {
+    return Array.from(new Set((memberIds || []).filter((memberId) => Boolean(teamRegistry.get(memberId)))));
 }
 function summarizeRailwayPayload(payload) {
     const eventType = String(payload?.event || payload?.type || payload?.action || payload?.trigger || "event").trim() || "event";
@@ -4023,6 +4137,145 @@ app.post("/api/messenger", async (req, res) => {
         return res.status(500).json({ error: describeError(error) });
     }
 });
+app.get("/api/local/workbench", async (_req, res) => {
+    try {
+        return res.json(await buildLocalWorkbenchPayload());
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/local/agents/from-model", async (req, res) => {
+    const schema = z.object({
+        label: z.string().optional(),
+        role: z.enum(["executive", "coder", "runner"]).optional(),
+        provider: z.enum(["ollama", "openclaw"]).optional(),
+        model: z.string().min(1),
+        specialty: z.string().optional(),
+        notes: z.string().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const sourceModel = parsed.data.model.trim();
+        const agent = await teamRegistry.upsert({
+            name: parsed.data.label?.trim() || `Local ${sourceModel.split(/[/:]/).slice(-1)[0] || "Specialist"}`,
+            role: parsed.data.role || "runner",
+            provider: parsed.data.provider || "ollama",
+            model: sourceModel,
+            sourceModel,
+            specialty: parsed.data.specialty || "Local tuned model",
+            notes: parsed.data.notes || `Built from tuned model ${sourceModel} for the local workstation surface.`,
+            surface: "local"
+        });
+        await progressionStore.ensureAgents(teamRegistry.list());
+        await ensureDefaultGroupChat();
+        await ensureLocalWorkbenchGroupChat();
+        return res.json({
+            ok: true,
+            agent: withProgression(agent),
+            workbench: await buildLocalWorkbenchPayload()
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/local/agents/:agentId/model", async (req, res) => {
+    const schema = z.object({
+        model: z.string().min(1),
+        provider: z.enum(["ollama", "openclaw"]).optional(),
+        sourceModel: z.string().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    const agentId = String(req.params.agentId || "");
+    const existing = teamRegistry.get(agentId);
+    if (!existing) {
+        return res.status(404).json({ error: "agent not found" });
+    }
+    if (String(existing.surface || "shared") !== "local") {
+        return res.status(400).json({ error: "only local agents can be assigned from the local workbench" });
+    }
+    try {
+        const agent = await teamRegistry.upsert({
+            id: agentId,
+            model: parsed.data.model.trim(),
+            sourceModel: String(parsed.data.sourceModel || parsed.data.model).trim(),
+            provider: parsed.data.provider || existing.provider || "ollama",
+            surface: "local"
+        });
+        await ensureDefaultGroupChat();
+        await ensureLocalWorkbenchGroupChat();
+        return res.json({
+            ok: true,
+            agent: withProgression(agent),
+            workbench: await buildLocalWorkbenchPayload()
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
+app.post("/api/local/rooms", async (req, res) => {
+    const schema = z.object({
+        id: z.string().optional(),
+        type: z.enum(["direct", "group"]).default("group"),
+        title: z.string().optional(),
+        members: z.array(z.string()).default([])
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "invalid request" });
+    }
+    try {
+        const memberIds = uniqueValidMemberIds(parsed.data.members);
+        if (parsed.data.type === "direct" && memberIds.length !== 2) {
+            return res.status(400).json({ error: "direct threads require exactly two members" });
+        }
+        if (parsed.data.type === "group" && memberIds.length < 2) {
+            return res.status(400).json({ error: "group rooms require at least two members" });
+        }
+        const state = dashboardStore.getState();
+        const requestedTitle = String(parsed.data.title || "").trim();
+        const title = requestedTitle || (parsed.data.type === "direct" ? buildDirectRoomTitle(memberIds) : "Local Group Room");
+        const chatId = String(parsed.data.id || `${parsed.data.type}-${slugifyName(title)}-${Date.now().toString(36)}`);
+        let chat = state.messenger.chats.find((entry) => entry.id === chatId) || null;
+        if (chat) {
+            chat.type = parsed.data.type;
+            chat.title = title;
+            chat.members = memberIds;
+            chat.origin = "user";
+            chat.messages = Array.isArray(chat.messages) ? chat.messages : [];
+        }
+        else {
+            chat = {
+                id: chatId,
+                type: parsed.data.type,
+                title,
+                members: memberIds,
+                messages: [],
+                lastReadAt: 0,
+                origin: "user"
+            };
+            state.messenger.chats.unshift(chat);
+        }
+        state.messenger.activeChatId = chat.id;
+        await dashboardStore.setMessengerState(state.messenger);
+        return res.json({
+            ok: true,
+            chat,
+            workbench: await buildLocalWorkbenchPayload()
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ error: describeError(error) });
+    }
+});
 app.get("/api/team/agents", (_req, res) => {
     res.json({ agents: listAgentsWithProgression() });
 });
@@ -4165,8 +4418,11 @@ app.post("/api/team/agents", async (req, res) => {
         lotId: z.string().optional(),
         posX: z.number().optional(),
         posY: z.number().optional(),
+        surface: z.enum(["shared", "local", "railway"]).optional(),
         provider: z.enum(["ollama", "openclaw"]).optional(),
         model: z.string().optional(),
+        specialty: z.string().optional(),
+        sourceModel: z.string().optional(),
         tools: z.array(z.string()).optional(),
         skills: z.array(z.string()).optional(),
         notes: z.string().optional(),
@@ -4842,6 +5098,7 @@ await personaRegistry.init();
 await teamRegistry.init();
 await progressionStore.init();
 await ensurePostDeploySpecialists();
+await ensureLocalSpecialists();
 await progressionStore.ensureAgents(teamRegistry.list());
 await dashboardStore.init();
 for (const task of dashboardStore.getState().tasks.filter((entry) => entry.status === "done" && entry.agentId)) {
@@ -4854,6 +5111,7 @@ for (const task of dashboardStore.getState().tasks.filter((entry) => entry.statu
 await migrateLegacyGroupArtifacts();
 await ensureDefaultGroupChat();
 await ensurePostDeployGroupChat();
+await ensureLocalWorkbenchGroupChat();
 const managerAgent = teamRegistry.list().find((agent) => agent.isManager);
 const managerBrain = managerAgent ? await teamRegistry.getBrain(managerAgent.id) : baseBrain;
 learningLoop = new KiraLearningLoop(() => ({ ...config, ...runtimeSettings }), managerBrain);

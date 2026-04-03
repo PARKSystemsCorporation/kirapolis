@@ -56,6 +56,9 @@ function slugify(value) {
 function normalizeRole(input) {
     return input === "executive" || input === "coder" || input === "runner" ? input : "runner";
 }
+function normalizeSurface(input) {
+    return input === "local" || input === "railway" || input === "shared" ? input : "shared";
+}
 function isPlaceholderModel(model) {
     return model === "openclaw/executive" || model === "openclaw/coder" || model === "ollama/fast";
 }
@@ -165,7 +168,8 @@ function createSeedAgents(controlRoot, projectRoot, models) {
             role: "runner",
             tools: ["workspace-read", "exec", "planning", "web"],
             skills: ["deployment", "runtime-monitoring", "incident-triage", "release-readiness", "log-analysis", "railway-ops", "handoff-reporting"],
-            notes: "Monitors post-deployment health, deployment incidents, Railway webhook reports, and runtime regressions, then relays concrete findings back to the team."
+            notes: "Monitors post-deployment health, deployment incidents, Railway webhook reports, and runtime regressions, then relays concrete findings back to the team.",
+            surface: "railway"
         },
         {
             id: "agent-visual-analyst",
@@ -173,7 +177,8 @@ function createSeedAgents(controlRoot, projectRoot, models) {
             role: "runner",
             tools: ["workspace-read", "planning", "web", "exec"],
             skills: ["visual-qa", "ux-regression-review", "cross-device-auditing", "release-readiness", "playability-review", "screenshot-analysis"],
-            notes: "Checks the deployed experience visually after release, looks for layout regressions and broken journeys, and reports what changed in plain language for the team."
+            notes: "Checks the deployed experience visually after release, looks for layout regressions and broken journeys, and reports what changed in plain language for the team.",
+            surface: "railway"
         }
     ];
     return specs.map((spec, index) => {
@@ -185,8 +190,11 @@ function createSeedAgents(controlRoot, projectRoot, models) {
             lotId: "world",
             posX: position.x,
             posY: position.y,
+            surface: normalizeSurface(spec.surface),
             provider: defaultProviderForRole(spec.role),
             model: defaultModelForRole(spec.role, models, defaultProviderForRole(spec.role)),
+            specialty: String(spec.specialty || ""),
+            sourceModel: String(spec.sourceModel || ""),
             tools: spec.tools,
             skills: spec.skills,
             notes: spec.notes,
@@ -338,6 +346,7 @@ export class TeamRegistry {
         const position = defaultPosition(existingAgents.length);
         const workspacePath = path.resolve(this.baseConfig.projectRoot);
         const memoryPath = path.resolve(path.join(this.agentsDir, id, "memory.db"));
+        const surface = normalizeSurface(input.surface ?? current?.surface);
         const provider = input.provider === "ollama" || input.provider === "openclaw"
             ? input.provider
             : (current?.provider || defaultProviderForRole(role));
@@ -352,8 +361,11 @@ export class TeamRegistry {
             lotId: String(input.lotId || current?.lotId || "world"),
             posX: Number.isFinite(Number(input.posX)) ? Number(input.posX) : Number(current?.posX ?? position.x),
             posY: Number.isFinite(Number(input.posY)) ? Number(input.posY) : Number(current?.posY ?? position.y),
+            surface,
             provider,
             model: normalizedModel,
+            specialty: String(input.specialty || current?.specialty || ""),
+            sourceModel: String(input.sourceModel || current?.sourceModel || normalizedModel || ""),
             tools: mergeUnique(Array.isArray(input.tools) && input.tools.length
                 ? input.tools.map((tool) => String(tool))
                 : (current?.tools?.length ? [...current.tools] : []), defaultToolsForRole(role)),
