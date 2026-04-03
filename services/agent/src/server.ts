@@ -22,6 +22,7 @@ const runtimeSettings = {
     models: { ...config.models }
 };
 const app = express();
+app.set("trust proxy", 1);
 const baseBrain = new KiraBrain(config);
 const personaRegistry = new PersonaRegistry(config.controlRoot);
 const teamRegistry = new TeamRegistry(config);
@@ -29,6 +30,14 @@ const dashboardStore = new DashboardStore(config.controlRoot);
 const progressionStore = new ProgressionStore(config.controlRoot);
 let learningLoop;
 let teamHeartbeat;
+const startupState = {
+    phase: "booting",
+    ready: false,
+    failed: false,
+    error: "",
+    startedAt: Date.now(),
+    finishedAt: 0
+};
 let msgIdCounter = 0;
 function nextMsgId() { return `msg-${Date.now()}-${++msgIdCounter}`; }
 const experienceMemory = {
@@ -2974,8 +2983,16 @@ app.get("/favicon.ico", (_req, res) => {
     return res.status(204).end();
 });
 app.get("/health", (_req, res) => {
-    res.json({
+    res.status(startupState.failed ? 503 : 200).json({
         ok: true,
+        startup: {
+            phase: startupState.phase,
+            ready: startupState.ready,
+            failed: startupState.failed,
+            error: startupState.error,
+            startedAt: startupState.startedAt,
+            finishedAt: startupState.finishedAt
+        },
         provider: runtimeSettings.provider,
         models: runtimeSettings.models,
         workspaceRoot: config.workspaceRoot,
@@ -2984,6 +3001,25 @@ app.get("/health", (_req, res) => {
         ollamaBaseUrl: runtimeSettings.ollamaBaseUrl,
         openClawBaseUrl: runtimeSettings.openClawBaseUrl,
         memory: baseBrain.getStats()
+    });
+});
+app.use("/api", (req, res, next) => {
+    if (req.path === "/login") {
+        return next();
+    }
+    if (startupState.ready) {
+        return next();
+    }
+    return res.status(startupState.failed ? 503 : 503).json({
+        error: startupState.failed ? "startup failed" : "startup in progress",
+        startup: {
+            phase: startupState.phase,
+            ready: startupState.ready,
+            failed: startupState.failed,
+            error: startupState.error,
+            startedAt: startupState.startedAt,
+            finishedAt: startupState.finishedAt
+        }
     });
 });
 app.get("/api/integrations/railway/status", (_req, res) => {
@@ -5119,34 +5155,44 @@ app.get("/api/notes/frontmatter", async (req, res) => {
 
 // --- end notes layer ---
 async function bootstrapServer() {
+    startupState.phase = "config";
     logStartup("config", `host=${config.host} port=${config.port} runtime=${config.runtimeMode} publicBaseUrl=${config.publicBaseUrl || "(unset)"}`);
     logStartup("paths", `controlRoot=${config.controlRoot} projectRoot=${config.projectRoot}`);
     logStartup("providers", `provider=${runtimeSettings.provider} ollama=${runtimeSettings.ollamaBaseUrl} openclaw=${runtimeSettings.openClawBaseUrl}`);
 
+    startupState.phase = "base-brain:init";
     logStartup("base-brain:init");
     await baseBrain.init();
 
+    startupState.phase = "persona-registry:init";
     logStartup("persona-registry:init");
     await personaRegistry.init();
 
+    startupState.phase = "team-registry:init";
     logStartup("team-registry:init");
     await teamRegistry.init();
 
+    startupState.phase = "progression-store:init";
     logStartup("progression-store:init");
     await progressionStore.init();
 
+    startupState.phase = "specialists:post-deploy";
     logStartup("specialists:post-deploy");
     await ensurePostDeploySpecialists();
 
+    startupState.phase = "specialists:local";
     logStartup("specialists:local");
     await ensureLocalSpecialists();
 
+    startupState.phase = "progression-store:ensure-agents";
     logStartup("progression-store:ensure-agents", `count=${teamRegistry.list().length}`);
     await progressionStore.ensureAgents(teamRegistry.list());
 
+    startupState.phase = "dashboard-store:init";
     logStartup("dashboard-store:init");
     await dashboardStore.init();
 
+    startupState.phase = "progression-store:reconcile-completed-tasks";
     logStartup("progression-store:reconcile-completed-tasks", `tasks=${dashboardStore.getState().tasks.length}`);
     for (const task of dashboardStore.getState().tasks.filter((entry) => entry.status === "done" && entry.agentId)) {
         const existing = progressionStore.get(task.agentId);
@@ -5156,34 +5202,47 @@ async function bootstrapServer() {
         await awardAgentTaskCompletion(task.agentId, task.id, `${task.title}\n${task.detail || ""}`);
     }
 
+    startupState.phase = "groups:migrate-legacy-artifacts";
     logStartup("groups:migrate-legacy-artifacts");
     await migrateLegacyGroupArtifacts();
 
+    startupState.phase = "rooms:ensure-defaults";
     logStartup("rooms:ensure-defaults");
     await ensureDefaultGroupChat();
     await ensurePostDeployGroupChat();
     await ensureLocalWorkbenchGroupChat();
 
     const managerAgent = teamRegistry.list().find((agent) => agent.isManager);
+    startupState.phase = "manager-brain:select";
     logStartup("manager-brain:select", `manager=${managerAgent?.id || "base-brain"}`);
     const managerBrain = managerAgent ? await teamRegistry.getBrain(managerAgent.id) : baseBrain;
 
+    startupState.phase = "runtime:constructors";
     logStartup("runtime:constructors");
     learningLoop = new KiraLearningLoop(() => ({ ...config, ...runtimeSettings }), managerBrain);
     teamHeartbeat = new TeamHeartbeat();
-
-    logStartup("listen:start");
-    await new Promise((resolve, reject) => {
-        const server = app.listen(config.port, config.host, () => {
-            console.log(`[agent] listening on http://${config.host}:${config.port}`);
-            console.log(`[agent] provider=${runtimeSettings.provider} executive=${runtimeSettings.models.executive} coder=${runtimeSettings.models.coder} fast=${runtimeSettings.models.fast}`);
-            logStartup("listen:ready", `/app and /health available`);
-            resolve(server);
-        });
-        server.on("error", reject);
-    });
+    startupState.phase = "ready";
+    startupState.ready = true;
+    startupState.finishedAt = Date.now();
+    logStartup("bootstrap:ready", `/app and /health available`);
 }
-bootstrapServer().catch((error) => {
-    console.error("[startup] failed", error);
-    process.exitCode = 1;
+logStartup("listen:start");
+const server = app.listen(config.port, config.host, () => {
+    console.log(`[agent] listening on http://${config.host}:${config.port}`);
+    console.log(`[agent] provider=${runtimeSettings.provider} executive=${runtimeSettings.models.executive} coder=${runtimeSettings.models.coder} fast=${runtimeSettings.models.fast}`);
+    logStartup("listen:ready", `proxy-aware=${app.get("trust proxy")}`);
+    void bootstrapServer().catch((error) => {
+        startupState.phase = "failed";
+        startupState.failed = true;
+        startupState.error = describeError(error);
+        startupState.finishedAt = Date.now();
+        console.error("[startup] failed", error);
+    });
+});
+server.on("error", (error) => {
+    startupState.phase = "listen:error";
+    startupState.failed = true;
+    startupState.error = describeError(error);
+    startupState.finishedAt = Date.now();
+    console.error("[startup] listen error", error);
 });
