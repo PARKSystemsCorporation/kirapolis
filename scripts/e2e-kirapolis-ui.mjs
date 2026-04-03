@@ -160,7 +160,7 @@ async function main() {
   assertIncludes(fullscreenChat.dom, "Room Context", "Fullscreen chat side context");
 
   const appCommand = render("http://127.0.0.1:4317/app?tab=control", "app-command.png");
-  assertIncludes(appCommand.dom, "Autonomy now comes up live by default", "Command autonomy default copy");
+  assertIncludesAny(appCommand.dom, ["Autonomy now comes up live by default", "Autonomy comes up live by default"], "Command autonomy default copy");
   assertIncludes(appCommand.dom, "Default page routing rule", "Command routing rule card");
   assertIncludes(appCommand.dom, "index.html", "Command routing convention");
 

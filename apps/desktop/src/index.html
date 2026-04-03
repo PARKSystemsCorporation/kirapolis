@@ -757,6 +757,124 @@
       gap: 18px;
       align-items: start;
     }
+    .command-shell {
+      display: grid;
+      gap: 18px;
+    }
+    .command-priority-grid,
+    .command-systems-grid,
+    .command-monitor-grid,
+    .command-rail {
+      display: grid;
+      gap: 14px;
+    }
+    .command-priority-grid {
+      grid-template-columns: minmax(0, 1.28fr) minmax(300px, 0.92fr);
+    }
+    .command-systems-grid {
+      grid-template-columns: minmax(280px, 0.95fr) minmax(0, 1.05fr);
+    }
+    .command-monitor-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .command-rail {
+      position: sticky;
+      top: 0;
+      align-content: start;
+    }
+    .command-hero {
+      display: grid;
+      gap: 16px;
+    }
+    .command-hero-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: start;
+    }
+    .command-hero-copy {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+    .command-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .command-kicker .pill {
+      background: rgba(31, 18, 10, 0.82);
+    }
+    .command-callouts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .command-callout {
+      border: 1px solid rgba(255, 151, 77, 0.14);
+      border-radius: 18px;
+      padding: 12px 14px;
+      background: rgba(8, 5, 3, 0.72);
+      display: grid;
+      gap: 6px;
+    }
+    .command-actions {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }
+    .command-actions button {
+      min-height: 48px;
+      justify-content: center;
+    }
+    .command-summary-card {
+      min-width: 260px;
+      border: 1px solid rgba(255, 151, 77, 0.14);
+      border-radius: 22px;
+      padding: 14px;
+      background: rgba(8, 5, 3, 0.72);
+      display: grid;
+      gap: 12px;
+    }
+    .command-summary-grid {
+      display: grid;
+      gap: 10px;
+    }
+    .command-summary-item {
+      border: 1px solid rgba(255, 151, 77, 0.12);
+      border-radius: 16px;
+      padding: 10px 12px;
+      background: rgba(20, 12, 8, 0.82);
+      display: grid;
+      gap: 5px;
+    }
+    .command-section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: start;
+    }
+    .command-section-head .sub {
+      max-width: 420px;
+    }
+    .command-input-card,
+    .command-health-card,
+    .command-log-card,
+    .command-map-card,
+    .command-readiness-card,
+    .command-room-card,
+    .command-focus-card {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+    .command-input-card textarea {
+      min-height: 172px;
+    }
+    .command-map-card .town-board {
+      min-height: 420px;
+    }
     .guide-card {
       border: 1px solid rgba(255, 151, 77, 0.14);
       border-radius: 20px;
@@ -1770,13 +1888,14 @@
       padding-right: 4px;
     }
     @media (max-width: 1440px) {
-      .command-grid, .chat-shell, .world-grid, .preview-grid, .workspace-grid, .surface-strip { grid-template-columns: 1fr; }
-      .command-columns, .manager-columns, .ops-grid, .grid-3, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .command-grid, .chat-shell, .world-grid, .preview-grid, .workspace-grid, .surface-strip, .command-priority-grid, .command-systems-grid { grid-template-columns: 1fr; }
+      .command-columns, .manager-columns, .ops-grid, .grid-3, .grid-4, .command-monitor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 1100px) {
       .app { grid-template-columns: 1fr; }
       .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
-      .command-columns, .manager-columns, .ops-grid, .hero-metrics, .sidebar-kpis, .town-board { grid-template-columns: 1fr; }
+      .command-columns, .manager-columns, .ops-grid, .hero-metrics, .sidebar-kpis, .town-board, .command-monitor-grid, .command-callouts, .command-actions { grid-template-columns: 1fr; }
+      .command-hero-top { display: grid; }
       .message { max-width: 100%; }
     }
     @media (max-width: 980px) {
@@ -1819,6 +1938,9 @@
         margin-top: 12px !important;
       }
       .command-grid,
+      .command-priority-grid,
+      .command-systems-grid,
+      .command-monitor-grid,
       .command-columns,
       .manager-columns,
       .ops-grid,
@@ -1835,6 +1957,10 @@
       .workspace-grid,
       .surface-strip {
         grid-template-columns: 1fr;
+      }
+      .command-hero-top,
+      .command-section-head {
+        display: grid;
       }
       .autonomy-tape {
         grid-template-columns: 1fr;
@@ -1987,69 +2113,103 @@
         </div>
         <section id="tab-control" class="tab-panel stack">
           <div class="command-grid">
-            <div class="stack">
-              <div class="panel stack hero-panel">
-                <div class="toolbar">
-                  <div class="pill">Systems Command</div>
-                  <div class="pill">Orange Ops Surface</div>
+            <div class="command-shell">
+              <div class="panel command-hero hero-panel">
+                <div class="command-hero-top">
+                  <div class="command-hero-copy">
+                    <div class="command-kicker">
+                      <div class="pill">Systems Command</div>
+                      <div class="pill">Primary Control Layer</div>
+                    </div>
+                    <div class="big">Command should answer three things fast: what matters now, what the team is doing, and what needs your decision.</div>
+                    <div class="hero-copy">This surface is now organized in that order. Lead from the brief, sanity-check runtime, set the project boundary, then step into live queues only when something needs intervention.</div>
+                  </div>
+                  <div class="command-summary-card">
+                    <div class="label">Live Summary</div>
+                    <div id="loop-status" class="sub">Checking autonomy state.</div>
+                    <div class="command-summary-grid">
+                      <div class="command-summary-item">
+                        <div class="label">Autonomy</div>
+                        <div id="metric-autonomy" class="kpi status">Off</div>
+                      </div>
+                      <div class="command-summary-item">
+                        <div class="label">Agents</div>
+                        <div id="metric-agents" class="kpi">0</div>
+                      </div>
+                      <div class="command-summary-item">
+                        <div class="label">Tasks</div>
+                        <div id="metric-tasks" class="kpi">0</div>
+                      </div>
+                      <div class="command-summary-item">
+                        <div class="label">Failures</div>
+                        <div id="metric-failures" class="kpi">0</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div class="big">Run the whole org from one place.</div>
-                <div class="hero-copy">Set your operating brief, verify system health, and configure your project path. Autonomy now comes up live by default and only stops when you turn it off in Settings or stop the server.</div>
-                <div class="toolbar">
+                <div class="command-callouts">
+                  <div class="command-callout">
+                    <div class="label">Operating Rule</div>
+                    <div class="sub">Autonomy comes up live by default and only stops when you shut it off in Settings or stop the server.</div>
+                  </div>
+                  <div class="command-callout">
+                    <div class="label">Routing Rule</div>
+                    <div class="sub">Website pages should map to folder-name URL slugs, with an <span class="mono">index.html</span> inside each page folder unless a framework intentionally overrides that structure.</div>
+                  </div>
+                </div>
+                <div class="command-actions">
                   <button class="primary" id="save-brief-btn">Save Brief</button>
                   <button id="brief-core-team-btn">Brief Core Team</button>
                   <button id="launch-check-btn">Launch Check</button>
                   <button id="backup-snapshot-btn">Export Backup</button>
                   <button id="director-reset-btn">Director Reset</button>
                 </div>
-                <div id="loop-status" class="sub"></div>
                 <div class="status-legend">
                   <div class="legend-item"><span class="legend-dot typing"></span>Drafting</div>
                   <div class="legend-item"><span class="legend-dot waiting"></span>Waiting</div>
                   <div class="legend-item"><span class="legend-dot active"></span>Executing</div>
                   <div class="legend-item"><span class="legend-dot error"></span>Error</div>
                 </div>
-                <div class="hero-metrics">
-                  <div class="hero-stat">
-                    <div class="label">Agents</div>
-                    <div id="metric-agents" class="kpi">0</div>
-                  </div>
-                  <div class="hero-stat">
-                    <div class="label">Rooms</div>
-                    <div id="metric-rooms" class="kpi">0</div>
-                  </div>
-                  <div class="hero-stat">
-                    <div class="label">Tasks</div>
-                    <div id="metric-tasks" class="kpi">0</div>
-                  </div>
-                  <div class="hero-stat">
-                    <div class="label">Failures</div>
-                    <div id="metric-failures" class="kpi">0</div>
-                  </div>
-                  <div class="hero-stat">
-                    <div class="label">Autonomy</div>
-                    <div id="metric-autonomy" class="kpi status">Off</div>
-                  </div>
-                </div>
               </div>
 
-              <div class="command-columns">
-                <div class="panel stack">
-                  <div class="label">Manager Brief</div>
-                  <div class="sub">Write the standing instructions for your managers and builders. This is the north star every room can align to.</div>
+              <div class="command-priority-grid">
+                <div class="panel command-input-card">
+                  <div class="command-section-head">
+                    <div>
+                      <div class="label">1. Direction</div>
+                      <div class="big" style="font-size:26px;">Manager Brief</div>
+                    </div>
+                    <div class="sub">Set the standing operating logic for the whole org before you touch queues or deployment controls.</div>
+                  </div>
                   <textarea id="project-brief-input" placeholder="Describe the operating goal, execution rules, priorities, deliverables, and what managers should enforce across the system."></textarea>
                   <div class="guide-card">
                     <strong>Best when this brief is specific</strong>
                     <div class="sub">Call out the product goal, what success looks like, who should decide tradeoffs, and what the team should never do without review.</div>
                   </div>
-                  <div class="guide-card">
-                    <strong>Default page routing rule</strong>
-                    <div class="sub">Each website page should live in a folder whose name matches the final URL slug, with an <span class="mono">index.html</span> inside that folder as the visible entry file unless a framework-specific router intentionally changes that pattern.</div>
-                  </div>
                 </div>
 
-                <div class="panel stack">
-                  <div class="label">System Health</div>
+                <div class="panel command-health-card">
+                  <div class="command-section-head">
+                    <div>
+                      <div class="label">2. Readiness</div>
+                      <div class="big" style="font-size:26px;">System Health</div>
+                    </div>
+                    <div class="sub">Before you dispatch anything, confirm the runtime, model endpoints, and launch path are healthy.</div>
+                  </div>
+                  <div class="hero-metrics">
+                    <div class="hero-stat">
+                      <div class="label">Rooms</div>
+                      <div id="metric-rooms" class="kpi">0</div>
+                    </div>
+                    <div class="hero-stat">
+                      <div class="label">Autonomy</div>
+                      <div id="command-autonomy-status" class="kpi status">Live</div>
+                    </div>
+                    <div class="hero-stat">
+                      <div class="label">Probe</div>
+                      <div id="command-probe-status" class="kpi">Ready</div>
+                    </div>
+                  </div>
                   <div class="status-grid">
                     <div class="status-row">
                       <div>
@@ -2079,10 +2239,15 @@
                 </div>
               </div>
 
-              <div class="command-columns">
-                <div class="panel stack">
-                  <div class="label">Project Boundary</div>
-                  <div class="sub">Every agent action stays inside this systems workspace.</div>
+              <div class="command-systems-grid">
+                <div class="panel command-input-card">
+                  <div class="command-section-head">
+                    <div>
+                      <div class="label">3. Boundary</div>
+                      <div class="big" style="font-size:24px;">Project Boundary</div>
+                    </div>
+                    <div class="sub">Keep the team grounded in one workspace and one URL structure convention.</div>
+                  </div>
                   <div>
                     <div class="label">Website Project Path</div>
                     <div class="inline-input">
@@ -2094,13 +2259,23 @@
                     <button id="save-settings-btn">Save Settings</button>
                   </div>
                   <div class="guide-card">
+                    <strong>Default page routing rule</strong>
+                    <div class="sub">Each visible page should live in a folder whose name matches the final URL slug. Inside that folder, use <span class="mono">index.html</span> for the page entry unless the framework intentionally defines a different entry file.</div>
+                  </div>
+                  <div class="guide-card">
                     <strong>Keep this path stable</strong>
                     <div class="sub">Changing the project root changes where agents read, write, build, and deploy. Save it once, then leave it steady unless the whole project moves.</div>
                   </div>
                 </div>
 
-                <div class="panel stack">
-                  <div class="label">Deploy Pipeline</div>
+                <div class="panel command-input-card">
+                  <div class="command-section-head">
+                    <div>
+                      <div class="label">4. Release</div>
+                      <div class="big" style="font-size:24px;">Deploy Pipeline</div>
+                    </div>
+                    <div class="sub">Use this only after the brief and runtime are stable. It’s downstream from command, not the page’s starting point.</div>
+                  </div>
                   <div>
                     <div class="label">Build Command</div>
                     <input id="build-command-input" placeholder="npm run build">
@@ -2122,7 +2297,7 @@
                 </div>
               </div>
 
-              <div class="manager-columns">
+              <div class="command-monitor-grid">
                 <div class="panel stack">
                   <div class="row-head">
                     <div class="label">Manager Queue</div>
@@ -2131,7 +2306,10 @@
                   <div id="manager-activity-list" class="list manager-list"></div>
                 </div>
                 <div class="panel stack">
-                  <div class="label">Execution Backlog</div>
+                  <div class="row-head">
+                    <div class="label">Execution Backlog</div>
+                    <div class="sub">Open work requiring attention.</div>
+                  </div>
                   <div id="manager-tasks-list" class="list manager-list"></div>
                 </div>
                 <div class="panel stack">
@@ -2143,40 +2321,49 @@
                 </div>
               </div>
 
-              <div class="panel stack">
+              <div class="panel command-log-card">
                 <div class="row-head">
-                  <div class="label">Backend Log</div>
+                  <div>
+                    <div class="label">Backend Log</div>
+                    <div class="sub">Low-level runtime output stays here so it does not compete with command decisions.</div>
+                  </div>
                   <button type="button" id="log-toggle-btn">Show Log</button>
                 </div>
                 <div id="agent-log" class="viewer log-collapsed"></div>
               </div>
             </div>
 
-            <div class="stack">
-              <div class="panel stack">
-                <div class="row-head">
-                  <div class="label">Organization Map</div>
-                  <div class="sub">Click an agent to open their best matching room.</div>
+            <div class="command-rail">
+              <div class="panel command-map-card">
+                <div class="command-section-head">
+                  <div>
+                    <div class="label">Live Org Map</div>
+                    <div class="big" style="font-size:24px;">Organization Map</div>
+                  </div>
+                  <div class="sub">The right rail is the live context lane: who is active, where they are, and what room to enter next.</div>
                 </div>
                 <div id="town-board" class="town-board"></div>
               </div>
 
-              <div class="panel stack manager-focus-card">
+              <div class="panel command-focus-card manager-focus-card">
                 <div class="label">Focused Operator</div>
                 <div id="manager-focus"></div>
               </div>
 
-              <div class="panel stack">
+              <div class="panel command-room-card">
                 <div class="row-head">
                   <div class="label">Room Launchpad</div>
-                  <div class="sub">Fast entry points for managers and groups.</div>
+                  <div class="sub">Fast entry points for managers and hot rooms.</div>
                 </div>
                 <div id="manager-room-launchpad" class="room-launch-grid"></div>
               </div>
 
-              <div class="panel stack">
-                <div class="row-head">
-                  <div class="label">Launch Readiness</div>
+              <div class="panel command-readiness-card">
+                <div class="command-section-head">
+                  <div>
+                    <div class="label">Release Signal</div>
+                    <div class="big" style="font-size:22px;">Launch Readiness</div>
+                  </div>
                   <div id="launch-readiness-badge" class="pill">Checking</div>
                 </div>
                 <div id="launch-readiness-summary" class="sub">Checking live readiness.</div>
@@ -4860,6 +5047,11 @@
       $("ollama-status").className = `kpi status ${ollamaProbe.ok ? "ok" : "bad"}`;
       $("openclaw-status").textContent = openclawProbe.ok ? "reachable" : "offline";
       $("openclaw-status").className = `kpi status ${openclawProbe.ok ? "ok" : "bad"}`;
+      if ($("command-probe-status")) {
+        const healthyCount = [backendProbe, ollamaProbe, openclawProbe].filter((probe) => probe?.ok).length;
+        $("command-probe-status").textContent = healthyCount === 3 ? "Ready" : `${healthyCount}/3`;
+        $("command-probe-status").className = `kpi status ${healthyCount === 3 ? "ok" : "bad"}`;
+      }
       renderRemoteAccess();
       renderSurfaceStrip();
     }
@@ -4899,6 +5091,10 @@
         $("loop-status").textContent = `${activeCount} agent loop${activeCount === 1 ? "" : "s"} running now. ${waitingCount} scheduled. ${heartbeat.lastDetail || ""}`.trim();
       } else {
         $("loop-status").textContent = heartbeat.lastDetail || "Autonomy loop is idle.";
+      }
+      if ($("command-autonomy-status")) {
+        $("command-autonomy-status").textContent = heartbeat.active ? "Live" : "Off";
+        $("command-autonomy-status").className = `kpi status ${heartbeat.active ? "ok" : "bad"}`;
       }
       renderAutonomyToggle();
       renderSurfaceStrip();
