@@ -1722,6 +1722,12 @@
     $("office-create-room-btn")?.addEventListener("click", () => {
       createOfficeGroupChat().catch(() => null);
     });
+    $("office-room-name")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        createOfficeGroupChat().catch(() => null);
+      }
+    });
     $("room-preview-body").querySelector("[data-open-room-chat]")?.addEventListener("click", (event) => {
       openChatShortcut(event.currentTarget.getAttribute("data-open-room-chat"));
     });
@@ -1788,8 +1794,8 @@
     const eligibleStars = Math.max(1, Number(agent?.progression?.promotionEligibleStars || 1));
     $("menu-promote-star-2").disabled = eligibleStars < 2 || (agent?.progression?.stars || 1) >= 2;
     $("menu-promote-star-3").disabled = eligibleStars < 3 || (agent?.progression?.stars || 1) >= 3;
-    menu.style.left = `${Math.max(8, x)}px`;
-    menu.style.top = `${Math.max(8, y)}px`;
+    menu.style.left = `${Math.min(Math.max(8, x), window.innerWidth - 220)}px`;
+    menu.style.top = `${Math.min(Math.max(8, y), window.innerHeight - 160)}px`;
     menu.classList.remove("hidden");
   }
 
@@ -1995,6 +2001,18 @@
       if (!event.target.closest(".context-menu")) {
         hideMenu();
         hideWorkspaceMenu();
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        const menuVisible = !$("office-menu").classList.contains("hidden");
+        const wsMenuVisible = !$("workspace-context-menu")?.classList.contains("hidden");
+        if (menuVisible || wsMenuVisible) {
+          hideMenu();
+          hideWorkspaceMenu();
+        } else if (!$("office-drawer").classList.contains("hidden")) {
+          $("office-drawer").classList.add("hidden");
+        }
       }
     });
     window.addEventListener("blur", () => {
