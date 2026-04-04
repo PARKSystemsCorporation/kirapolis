@@ -1186,6 +1186,7 @@ h1 {
 .member-picker {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 145, 63, 0.54) rgba(13, 8, 5, 0.72);
+  -webkit-overflow-scrolling: touch;
 }
 
 .office-drawer::-webkit-scrollbar,
@@ -1675,6 +1676,24 @@ h1 {
     overflow: auto;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-x pan-y;
+  }
+
+  .drawer-scroll,
+  .drawer-viewer,
+  .drawer-browser-body,
+  .room-transcript,
+  .panel-copy,
+  .room-list,
+  .agent-chip-grid,
+  .member-picker {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  .office-drawer-tabs,
+  .office-dock {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
   }
 
   .nav-chip,
